@@ -8,42 +8,35 @@ const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBh
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-// --- CSS STYLES ---
+// --- CSS ---
 const styles = `
-  .flip-x {
-    transform: scaleX(-1);
-  }
-  .no-float {
-    transform: none !important;
-    animation: none !important;
-  }
+  .flip-x { transform: scaleX(-1); }
+  .no-float { transform: none !important; animation: none !important; }
   @keyframes float-slow {
     0%, 100% { transform: translateY(0px); }
     50% { transform: translateY(-15px); }
   }
-  .animate-landing-float {
-    animation: float-slow 4s ease-in-out infinite;
-  }
+  .animate-landing-float { animation: float-slow 4s ease-in-out infinite; }
 `;
 
 // --- COMPONENTS ---
 
 const LoadingScreen = ({ onComplete }) => {
-  const [progress, setProgress] = useState(-10); // เริ่มใกล้ขึ้น ไม่ต้องไกลมาก
+  const [progress, setProgress] = useState(-10);
   const [isFinished, setIsFinished] = useState(false);
   
   useEffect(() => {
     const timer = setInterval(() => {
       setProgress(prev => {
-        if (prev >= 110) { // วิ่งเลยไปนิดเดียวพอ
+        if (prev >= 110) {
           clearInterval(timer);
           setIsFinished(true);
           setTimeout(onComplete, 500);
           return 110;
         }
-        return prev + 1.5; // ความเร็วกลางๆ
+        return prev + 1.5;
       });
-    }, 30); // ปรับเป็น 30ms ตามที่ขอ
+    }, 30);
     return () => clearInterval(timer);
   }, [onComplete]);
 
@@ -51,20 +44,12 @@ const LoadingScreen = ({ onComplete }) => {
     <div className={`fixed inset-0 bg-gradient-to-b from-indigo-900 via-indigo-800 to-indigo-900 z-50 flex flex-col items-center justify-center transition-opacity duration-500 ${isFinished ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}>
       <div className="absolute inset-0 overflow-hidden">
         {[...Array(20)].map((_, i) => (
-          <div key={i} className="absolute w-1 h-1 bg-white rounded-full animate-pulse"
-            style={{ left: `${Math.random() * 100}%`, top: `${Math.random() * 60}%`, animationDelay: `${Math.random() * 2}s` }} />
+          <div key={i} className="absolute w-1 h-1 bg-white rounded-full animate-pulse" style={{ left: `${Math.random() * 100}%`, top: `${Math.random() * 60}%`, animationDelay: `${Math.random() * 2}s` }} />
         ))}
       </div>
-      
       <div className="relative mb-8 w-full h-20 overflow-hidden max-w-sm">
-        <div 
-          className="absolute top-0 transition-all duration-75 ease-linear will-change-transform"
-          style={{ left: `${progress}%` }}
-        > 
-           {/* กลับด้าน Emoji ให้หันไปทางขวา (กวางนำหน้า) */}
-           <div className="text-5xl whitespace-nowrap filter drop-shadow-lg flip-x">
-             🎅🛷🦌🦌
-           </div>
+        <div className="absolute top-0 transition-all duration-75 ease-linear will-change-transform" style={{ left: `${progress}%` }}> 
+           <div className="text-5xl whitespace-nowrap filter drop-shadow-lg flip-x">🎅🛷🦌🦌</div>
         </div>
       </div>
       <p className="text-white/80 mt-12 text-sm font-medium animate-pulse">กำลังเดินทางไปบ้านซานต้า...</p>
@@ -72,7 +57,7 @@ const LoadingScreen = ({ onComplete }) => {
   );
 };
 
-// Santa Icon (เพิ่ม prop isSelected เพื่อทำ Highlight)
+// Santa Icon with Status
 const SantaIcon = ({ name, hasDrawn, isMe, isSelected, onClick, selectable = false }) => (
   <div 
     onClick={onClick}
@@ -81,13 +66,12 @@ const SantaIcon = ({ name, hasDrawn, isMe, isSelected, onClick, selectable = fal
       ${selectable ? 'cursor-pointer border-2' : ''}
       ${isSelected ? 'bg-red-50 border-red-500 scale-105 shadow-md' : 'border-transparent hover:bg-gray-50'}
       ${isMe && !selectable ? 'bg-red-50 ring-2 ring-red-200 scale-105' : ''}
+      ${hasDrawn && selectable ? 'opacity-50 grayscale-[0.5]' : ''} 
     `}
   >
     <div className="relative">
-      <div className={`text-4xl transition-all ${!hasDrawn && !selectable && !isSelected ? 'grayscale opacity-70' : ''}`}>
-        🎅
-      </div>
-      {/* Checkmark แสดงสถานะว่าคนนี้จับไปแล้ว */}
+      <div className="text-4xl transition-all">🎅</div>
+      {/* Checkmark: แสดงเสมอถ้าจับแล้ว */}
       {hasDrawn && (
         <div className="absolute -bottom-1 -right-1 bg-white rounded-full w-5 h-5 flex items-center justify-center shadow-md border border-green-100">
            <span className="text-xs text-green-500 font-bold">✓</span>
@@ -95,7 +79,7 @@ const SantaIcon = ({ name, hasDrawn, isMe, isSelected, onClick, selectable = fal
       )}
     </div>
     
-    <span className={`text-xs font-bold truncate max-w-[70px] ${isSelected ? 'text-red-600' : hasDrawn ? 'text-gray-800' : 'text-gray-500'}`}>
+    <span className={`text-xs font-bold truncate max-w-[70px] ${isSelected ? 'text-red-600' : hasDrawn ? 'text-green-700' : 'text-gray-500'}`}>
       {name}
     </span>
     
@@ -156,16 +140,18 @@ const RecoveryModal = ({ isOpen, onClose, onRecover }) => {
 
 // Edit Profile Modal
 const EditProfileModal = ({ isOpen, onClose, initialData, onSave }) => {
-    const [wishlist, setWishlist] = useState(initialData.wishlist || '');
-    const [hobby, setHobby] = useState(initialData.hobby || '');
-    const [message, setMessage] = useState(initialData.message || '');
+    const [wishlist, setWishlist] = useState('');
+    const [hobby, setHobby] = useState('');
+    const [message, setMessage] = useState('');
     const [isSaving, setIsSaving] = useState(false);
 
     useEffect(() => {
-        setWishlist(initialData.wishlist || '');
-        setHobby(initialData.hobby || '');
-        setMessage(initialData.message || '');
-    }, [initialData]);
+        if(isOpen) {
+            setWishlist(initialData.wishlist || '');
+            setHobby(initialData.hobby || '');
+            setMessage(initialData.message || '');
+        }
+    }, [initialData, isOpen]);
 
     if (!isOpen) return null;
 
@@ -224,7 +210,7 @@ export default function Home() {
   const [groupId, setGroupId] = useState('');
   const [groupName, setGroupName] = useState('');
   const [budgetMin, setBudgetMin] = useState(300);
-  const [budgetMax, setBudgetMax] = useState(500);
+  const [budgetMax, setBudgetMax] = useState(700); // FIX: Default to 700
   const [eventDate, setEventDate] = useState('');
   const [gameStarted, setGameStarted] = useState(false);
   
@@ -241,7 +227,7 @@ export default function Home() {
   const [showResultCard, setShowResultCard] = useState(false);
   
   // Selection State
-  const [selectedIdentity, setSelectedIdentity] = useState(null); // For Lobby Selection
+  const [selectedIdentity, setSelectedIdentity] = useState(null);
 
   // UI States
   const [isLoading, setIsLoading] = useState(false);
@@ -290,7 +276,7 @@ export default function Home() {
     
     const channel = supabase.channel('group-channel')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'participants', filter: `group_id=eq.${groupId}` }, fetchParticipants)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'draws', filter: `group_id=eq.${groupId}` }, checkGameStatus)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'draws', filter: `group_id=eq.${groupId}` }, () => { fetchParticipants(); checkGameStatus(); })
       .subscribe();
     return () => supabase.removeChannel(channel);
   }, [groupId, appStep, fetchParticipants, fetchGroupDetails, checkGameStatus]);
@@ -315,11 +301,6 @@ export default function Home() {
       setAppStep('lobby');
       setNotification('สร้างกลุ่มสำเร็จ! 🎉');
     } catch (err) { setError('สร้างไม่สำเร็จ: ' + err.message); } finally { setIsLoading(false); }
-  };
-
-  const handleUpdateGroupDate = async (newDate) => {
-    setEventDate(newDate);
-    try { await supabase.from('groups').update({ event_date: newDate }).eq('id', groupId); } catch (err) {}
   };
 
   const handleJoinGroup = async () => {
@@ -347,26 +328,29 @@ export default function Home() {
     if(error) { setError('เพิ่มไม่ได้: ' + error.message); } else { setNewMemberName(''); }
   };
 
-  // --- CONFIRM IDENTITY & CHECK STATUS ---
+  // --- LOGIC: SELECT IDENTITY & GATEKEEPER ---
   const handleConfirmIdentity = async () => {
       if (!selectedIdentity) return;
       setIsLoading(true);
       
       try {
-        setMyId(selectedIdentity.id);
+        const currentUserId = selectedIdentity.id;
+        setMyId(currentUserId);
         setMyName(selectedIdentity.name);
         setWishlist(selectedIdentity.wishlist || '');
         setHobby(selectedIdentity.hobby || '');
         setMessageToSanta(selectedIdentity.message_to_santa || '');
         
-        // ** CRITICAL FIX **: เช็ค Database จริงๆ ว่าคนนี้จับไปหรือยัง
-        // ไม่เชื่อ Local State 100% เพราะอาจจะไม่อัปเดต
-        const { data: drawData } = await supabase.from('draws').select('*, receiver:receiver_id(*)').eq('drawer_id', selectedIdentity.id).single();
+        // ** SYSTEMS THINKING FIX **: 
+        // เช็คที่ 'Draws' table เป็นหลัก (Single Source of Truth) ว่าคนนี้จับไปหรือยัง
+        const { data: drawData } = await supabase.from('draws').select('*, receiver:receiver_id(*)').eq('drawer_id', currentUserId).single();
         
         if (drawData) {
-            setMyDrawResult(drawData.receiver); // Set ผลลัพธ์ที่เคยจับไว้
-            setShowResultCard(true); // บังคับโชว์การ์ดผลลัพธ์เลย (ถ้าเคยจับแล้ว)
+            // CASE A: จับแล้ว -> ไปหน้าผลลัพธ์ทันที (ห้ามเห็นปุ่มจับใหม่)
+            setMyDrawResult(drawData.receiver);
+            setShowResultCard(true); // Flag to show result card UI
         } else {
+            // CASE B: ยังไม่จับ -> ไปหน้าปุ่มกด
             setMyDrawResult(null);
             setShowResultCard(false);
         }
@@ -387,14 +371,12 @@ export default function Home() {
   };
 
   const handleDraw = async () => {
-    if (myDrawResult) { setError('คุณจับฉลากไปแล้วนะ!'); return; } // Double check logic
+    if (myDrawResult) { setError('คุณจับฉลากไปแล้วนะ!'); return; }
     setIsDrawing(true); setShowResultCard(false);
     
-    // 1. Get IDs that are already taken
+    // Logic จับฉลาก
     const { data: draws } = await supabase.from('draws').select('receiver_id').eq('group_id', groupId);
     const takenIds = draws?.map(d => d.receiver_id) || [];
-    
-    // 2. Filter valid receivers (Not me, Not taken)
     const validReceivers = participants.filter(p => p.id !== myId && !takenIds.includes(p.id));
     
     if (validReceivers.length === 0) { 
@@ -415,9 +397,10 @@ export default function Home() {
           setIsDrawing(false); 
           setShowResultCard(true);
           
-          // Save to DB
+          // TRANSACTION: Save Draw + Update Participant Status
           supabase.from('draws').insert({ group_id: groupId, drawer_id: myId, receiver_id: finalResult.id });
           supabase.from('participants').update({ has_drawn: true }).eq('id', myId);
+          
           setMyDrawResult(finalResult);
         }, 1200);
       }
@@ -428,6 +411,8 @@ export default function Home() {
   const myParticipant = participants.find(p => p.id === myId);
   // Status check: rely on DB result (myDrawResult) or local flag (has_drawn)
   const hasAlreadyDrawn = (myParticipant?.has_drawn) || (myDrawResult !== null);
+  const drawnCount = participants.filter(p => p.has_drawn).length;
+  const totalCount = participants.length;
   
   const formatDate = (dateStr) => {
       if(!dateStr) return null;
@@ -587,9 +572,13 @@ export default function Home() {
                         <button 
                             disabled={!selectedIdentity || isLoading}
                             onClick={handleConfirmIdentity}
-                            className="w-full bg-red-500 hover:bg-red-600 text-white font-bold py-4 rounded-2xl shadow-lg transform active:scale-95 transition-all disabled:opacity-50 disabled:shadow-none"
+                            className={`w-full font-bold py-4 rounded-2xl shadow-lg transform active:scale-95 transition-all disabled:opacity-50 disabled:shadow-none
+                                ${selectedIdentity 
+                                    ? 'bg-red-500 hover:bg-red-600 text-white' 
+                                    : 'bg-gray-200 text-gray-400 cursor-not-allowed'}
+                            `}
                         >
-                            {isLoading ? '⏳ กำลังเข้า...' : selectedIdentity ? `ไปต่อในชื่อ "${selectedIdentity.name}" →` : 'กรุณาเลือกชื่อของคุณ'}
+                            {isLoading ? '⏳ กำลังเข้า...' : selectedIdentity ? `ยืนยัน: ฉันคือ "${selectedIdentity.name}" →` : 'กรุณาเลือกชื่อของคุณด้านบน'}
                         </button>
                     </div>
 
@@ -635,19 +624,11 @@ export default function Home() {
                       {eventDate && <span className="text-xs bg-red-50 text-red-500 px-2 py-0.5 rounded-md font-bold">📅 {formatDate(eventDate)}</span>}
                    </div>
                 </div>
-
-                {/* Grid of Santas (Status) */}
-                <div className="bg-gray-50 rounded-2xl p-4">
-                   <h3 className="font-bold text-gray-400 text-xs mb-3 text-center uppercase tracking-wider">สถานะการจับฉลาก</h3>
-                   <div className="flex flex-wrap justify-center gap-x-4 gap-y-4">
-                      {participants.map(p => <SantaIcon key={p.id} name={p.name} hasDrawn={p.has_drawn} isMe={p.id === myId} />)}
-                   </div>
-                </div>
-
-                {/* Action Area */}
+                
+                {/* ACTION AREA (TOP) */}
                 {/* Condition: Show Result Card IF (I have a draw result) OR (I am marked as drawn and found the result) */}
                 {hasAlreadyDrawn ? (
-                   <div className="bg-gradient-to-br from-green-50 to-emerald-50 border-2 border-green-200 rounded-3xl p-6 text-center animate-fade-in-up shadow-sm">
+                   <div className="bg-gradient-to-br from-green-50 to-emerald-50 border-2 border-green-200 rounded-3xl p-6 text-center animate-fade-in-up shadow-sm mb-6">
                       <p className="text-green-600 font-bold mb-1">✅ คุณจับฉลากแล้ว</p>
                       
                       {myDrawResult ? (
@@ -656,27 +637,40 @@ export default function Home() {
                             <button onClick={() => setAppStep('result')} className="bg-green-500 text-white font-bold py-2 px-6 rounded-full shadow-lg hover:bg-green-600">ดูข้อมูลเพื่อน</button>
                           </>
                       ) : (
-                          // Fallback if data is missing but marked as drawn (should not happen often with logic fix)
                           <button onClick={handleConfirmIdentity} className="text-red-500 underline text-sm">โหลดข้อมูลไม่สำเร็จ ลองกดตรงนี้</button>
                       )}
+                      
+                      {/* EDIT PROFILE BUTTON (ALWAYS VISIBLE) */}
+                      <button onClick={() => setShowEditProfileModal(true)} className="block w-full text-center text-gray-400 text-xs hover:text-gray-600 mt-4 underline">✏️ แก้ไข Wishlist ของฉัน</button>
                    </div>
                 ) : (
-                   <div className="py-6 text-center">
+                   <div className="py-6 text-center mb-6">
                       {participants.length < 2 ? (
                          <p className="text-gray-400 italic">รอเพื่อนแป๊บนึงนะ... (ต้องมี 2 คนขึ้นไป)</p>
                       ) : (
-                         <button onClick={handleDraw} disabled={isDrawing} className={`w-40 h-40 rounded-full mx-auto shadow-2xl flex flex-col items-center justify-center gap-2 transition-all transform active:scale-95 ${isDrawing ? 'bg-gray-200 cursor-not-allowed' : 'bg-gradient-to-br from-red-500 to-red-600 hover:scale-105'}`}>
-                            {isDrawing ? <span className="text-4xl animate-spin">🎲</span> : <span className="text-5xl animate-bounce">🎁</span>}
-                            <span className={`font-bold ${isDrawing ? 'text-gray-400' : 'text-white'}`}>{isDrawing ? drawnResult?.name : 'จับเลย!'}</span>
-                         </button>
+                         <>
+                             <button onClick={handleDraw} disabled={isDrawing} className={`w-40 h-40 rounded-full mx-auto shadow-2xl flex flex-col items-center justify-center gap-2 transition-all transform active:scale-95 ${isDrawing ? 'bg-gray-200 cursor-not-allowed' : 'bg-gradient-to-br from-red-500 to-red-600 hover:scale-105'}`}>
+                                {isDrawing ? <span className="text-4xl animate-spin">🎲</span> : <span className="text-5xl animate-bounce">🎁</span>}
+                                <span className={`font-bold ${isDrawing ? 'text-gray-400' : 'text-white'}`}>{isDrawing ? drawnResult?.name : 'จับเลย!'}</span>
+                             </button>
+                             <button onClick={() => setShowEditProfileModal(true)} className="w-full text-center text-gray-400 text-sm hover:text-gray-600 mt-4 underline">✏️ แก้ไขข้อมูลส่วนตัว</button>
+                         </>
                       )}
                    </div>
                 )}
-                
-                {/* Buttons */}
-                {!hasAlreadyDrawn && (
-                   <button onClick={() => setShowEditProfileModal(true)} className="w-full text-center text-gray-400 text-sm hover:text-gray-600 mt-2 hover:underline">✏️ แก้ไขข้อมูล / Wishlist</button>
-                )}
+
+                {/* STATUS GRID (BOTTOM - ALWAYS VISIBLE) */}
+                <div className="bg-gray-50 rounded-2xl p-4 border border-gray-100">
+                   <div className="flex justify-between items-center mb-3">
+                        <h3 className="font-bold text-gray-500 text-xs uppercase tracking-wider">สถานะสมาชิก</h3>
+                        <span className="text-xs bg-white border border-gray-200 px-2 py-1 rounded-full text-gray-500 font-bold">
+                            จับแล้ว {drawnCount}/{totalCount}
+                        </span>
+                   </div>
+                   <div className="flex flex-wrap justify-center gap-x-4 gap-y-4">
+                      {participants.map(p => <SantaIcon key={p.id} name={p.name} hasDrawn={p.has_drawn} isMe={p.id === myId} />)}
+                   </div>
+                </div>
                 
                 <button onClick={() => setAppStep('lobby')} className="w-full text-center text-gray-300 text-xs mt-6 hover:text-gray-500">← เปลี่ยนชื่อ / กลับหน้าเลือก</button>
               </div>
@@ -722,9 +716,11 @@ export default function Home() {
                    )}
                 </div>
 
-                <div className="pt-4">
+                <div className="pt-4 space-y-3">
                    <p className="text-gray-300 text-xs mb-4">🤫 จุ๊ๆ อย่าบอกใครนะ</p>
-                   <button onClick={() => setAppStep('draw')} className="w-full bg-gray-100 hover:bg-gray-200 text-gray-600 font-bold py-3 rounded-xl transition-colors">← กลับ</button>
+                   {/* ALWAYS ALLOW EDIT */}
+                   <button onClick={() => setShowEditProfileModal(true)} className="w-full bg-white border border-gray-200 text-gray-500 font-bold py-3 rounded-xl hover:bg-gray-50 text-sm">✏️ แก้ไข Wishlist ของฉัน</button>
+                   <button onClick={() => setAppStep('draw')} className="w-full bg-gray-100 hover:bg-gray-200 text-gray-600 font-bold py-3 rounded-xl transition-colors">← กลับหน้าหลัก</button>
                 </div>
               </div>
             )}
