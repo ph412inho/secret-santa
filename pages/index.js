@@ -10,22 +10,27 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 // --- CSS STYLES ---
 const styles = `
+  .flip-x {
+    transform: scaleX(-1);
+  }
+  .no-float {
+    transform: none !important;
+    animation: none !important;
+  }
+  /* Animation for Landing only */
   @keyframes float-slow {
     0%, 100% { transform: translateY(0px); }
     50% { transform: translateY(-15px); }
   }
-  .animate-float-slow {
+  .animate-landing-float {
     animation: float-slow 4s ease-in-out infinite;
-  }
-  .flip-x {
-    transform: scaleX(-1);
   }
 `;
 
 // --- COMPONENTS ---
 
 const LoadingScreen = ({ onComplete }) => {
-  const [progress, setProgress] = useState(0);
+  const [progress, setProgress] = useState(-20); // Start off-screen left
   const [isFinished, setIsFinished] = useState(false);
   
   useEffect(() => {
@@ -37,9 +42,9 @@ const LoadingScreen = ({ onComplete }) => {
           setTimeout(onComplete, 500);
           return 120;
         }
-        return prev + 2;
+        return prev + 2; // Speed
       });
-    }, 20);
+    }, 15);
     return () => clearInterval(timer);
   }, [onComplete]);
 
@@ -51,12 +56,19 @@ const LoadingScreen = ({ onComplete }) => {
             style={{ left: `${Math.random() * 100}%`, top: `${Math.random() * 60}%`, animationDelay: `${Math.random() * 2}s` }} />
         ))}
       </div>
-      <div className="relative mb-8 w-full max-w-xs h-16">
-        <div className="absolute top-0 transition-all duration-100 ease-linear"
-          style={{ left: `${progress - 20}%` }}> 
-           {/* กลับด้าน Emoji ให้กวางนำหน้า และหันหน้าไปทางขวา (scaleX(-1)) */}
-           <div className="flex items-end gap-1 text-4xl whitespace-nowrap filter drop-shadow-lg flip-x">
-             🦌🦌🛷🎅
+      
+      {/* Container for Sleigh */}
+      <div className="relative mb-8 w-full h-20 overflow-hidden">
+        <div 
+          className="absolute top-0 transition-all duration-75 ease-linear will-change-transform"
+          style={{ left: `${progress}%` }}
+        > 
+           {/* String: Santa -> Sleigh -> Reindeer (🎅🛷🦌🦌)
+              CSS: scaleX(-1) flips them to face RIGHT.
+              Visual Result: [Reindeer] [Sleigh] [Santa] ---> Moving Right
+           */}
+           <div className="text-5xl whitespace-nowrap filter drop-shadow-lg flip-x">
+             🎅🛷🦌🦌
            </div>
         </div>
       </div>
@@ -65,23 +77,35 @@ const LoadingScreen = ({ onComplete }) => {
   );
 };
 
-const SantaIcon = ({ name, hasDrawn, isMe }) => (
-  <div className={`flex flex-col items-center gap-1 p-2 rounded-xl transition-all ${isMe ? 'bg-red-50 ring-2 ring-red-200 scale-105' : ''}`}>
+// Santa Icon Component (Used for Selection & Status)
+const SantaIcon = ({ name, hasDrawn, isMe, onClick, selectable = false }) => (
+  <div 
+    onClick={onClick}
+    className={`
+      flex flex-col items-center gap-1 p-2 rounded-xl transition-all relative
+      ${selectable ? 'cursor-pointer hover:bg-red-50 hover:scale-105 active:scale-95 bg-white border border-gray-100 shadow-sm' : ''}
+      ${isMe ? 'bg-red-50 ring-2 ring-red-200 scale-105' : ''}
+    `}
+  >
     <div className="relative">
-      <div className={`text-4xl transition-all ${hasDrawn ? '' : 'grayscale opacity-50'}`}>
+      <div className={`text-4xl transition-all ${hasDrawn && !selectable ? '' : ''} ${!hasDrawn && !selectable ? 'grayscale opacity-70' : ''}`}>
         🎅
       </div>
-      {hasDrawn && (
+      {/* Checkmark for Status */}
+      {hasDrawn && !selectable && (
         <div className="absolute -bottom-1 -right-1 bg-white rounded-full w-5 h-5 flex items-center justify-center shadow-md border border-green-100">
            <span className="text-xs text-green-500 font-bold">✓</span>
         </div>
       )}
     </div>
-    <span className={`text-xs font-bold truncate max-w-[70px] ${hasDrawn ? 'text-gray-800' : 'text-gray-400'}`}>
+    
+    <span className={`text-xs font-bold truncate max-w-[70px] ${hasDrawn ? 'text-gray-800' : 'text-gray-500'}`}>
       {name}
     </span>
-    {hasDrawn && (
-      <span className="text-[9px] text-green-600 bg-green-100 px-1.5 py-0.5 rounded-full font-bold shadow-sm">
+    
+    {/* Text Label for Status */}
+    {hasDrawn && !selectable && (
+      <span className="text-[9px] text-green-600 bg-green-100 px-1.5 py-0.5 rounded-full font-bold shadow-sm mt-0.5">
         จับแล้ว!
       </span>
     )}
@@ -93,7 +117,6 @@ const RecoveryModal = ({ isOpen, onClose, onRecover }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [searchResults, setSearchResults] = useState([]);
   const [isSearching, setIsSearching] = useState(false);
-  const [selectedGroup, setSelectedGroup] = useState(null);
 
   useEffect(() => {
     const delayDebounce = setTimeout(async () => {
@@ -113,17 +136,15 @@ const RecoveryModal = ({ isOpen, onClose, onRecover }) => {
       <div className="bg-white rounded-3xl p-6 max-w-sm w-full shadow-2xl relative">
         <button onClick={onClose} className="absolute top-4 right-4 text-gray-300 hover:text-gray-500">✕</button>
         <h3 className="text-lg font-bold text-gray-800 mb-4 text-center">🔍 ค้นหากลุ่ม</h3>
-        
         <div className="space-y-4">
           <div className="relative">
              <label className="block text-xs font-bold text-gray-500 mb-1">พิมพ์ชื่อกลุ่ม</label>
              <input type="text" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full bg-gray-50 border border-gray-200 rounded-xl px-3 py-3 text-sm focus:border-red-400 focus:outline-none" placeholder="เช่น แก๊งออฟฟิศ..." />
              {isSearching && <div className="absolute right-3 top-9 text-xs text-gray-400">⏳</div>}
-             
              {searchResults.length > 0 && (
                 <div className="absolute z-10 w-full mt-1 bg-white border border-gray-100 rounded-xl shadow-xl max-h-40 overflow-y-auto">
                     {searchResults.map(group => (
-                        <div key={group.id} onClick={() => { setSelectedGroup(group); setSearchResults([]); setSearchTerm(group.name); }} className="px-4 py-3 hover:bg-red-50 cursor-pointer border-b border-gray-50 last:border-0">
+                        <div key={group.id} onClick={() => onRecover(group)} className="px-4 py-3 hover:bg-red-50 cursor-pointer border-b border-gray-50 last:border-0">
                             <p className="font-bold text-gray-700 text-sm">{group.name}</p>
                             <p className="text-xs text-gray-400">Code: {group.id}</p>
                         </div>
@@ -131,16 +152,7 @@ const RecoveryModal = ({ isOpen, onClose, onRecover }) => {
                 </div>
              )}
           </div>
-
-          {selectedGroup ? (
-            <div className="bg-green-50 border border-green-200 rounded-xl p-4 text-center animate-fade-in-up">
-              <p className="text-green-700 font-bold mb-1">เลือกกลุ่มนี้?</p>
-              <p className="text-xl font-bold text-gray-800">{selectedGroup.name}</p>
-              <button onClick={() => onRecover(selectedGroup)} className="w-full bg-green-500 text-white font-bold py-2 rounded-lg text-sm shadow-md hover:bg-green-600 transition-colors mt-2">ไปที่กลุ่มเลย →</button>
-            </div>
-          ) : (
-            searchResults.length === 0 && searchTerm.length > 2 && !isSearching && <p className="text-center text-gray-400 text-sm italic">ไม่พบกลุ่มชื่อนี้</p>
-          )}
+          {searchResults.length === 0 && searchTerm.length > 2 && !isSearching && <p className="text-center text-gray-400 text-sm italic">ไม่พบกลุ่มชื่อนี้</p>}
         </div>
       </div>
     </div>
@@ -153,6 +165,13 @@ const EditProfileModal = ({ isOpen, onClose, initialData, onSave }) => {
     const [hobby, setHobby] = useState(initialData.hobby || '');
     const [message, setMessage] = useState(initialData.message || '');
     const [isSaving, setIsSaving] = useState(false);
+
+    // Sync state when initialData changes
+    useEffect(() => {
+        setWishlist(initialData.wishlist || '');
+        setHobby(initialData.hobby || '');
+        setMessage(initialData.message || '');
+    }, [initialData]);
 
     if (!isOpen) return null;
 
@@ -215,14 +234,13 @@ export default function Home() {
   const [eventDate, setEventDate] = useState('');
   const [gameStarted, setGameStarted] = useState(false);
   
-  const [myName, setMyName] = useState('');
   const [myId, setMyId] = useState(null);
+  const [myName, setMyName] = useState('');
   const [wishlist, setWishlist] = useState('');
   const [hobby, setHobby] = useState('');
   const [messageToSanta, setMessageToSanta] = useState('');
   
   const [participants, setParticipants] = useState([]);
-  const [lobbyParticipants, setLobbyParticipants] = useState([]);
   const [drawnResult, setDrawnResult] = useState(null);
   const [myDrawResult, setMyDrawResult] = useState(null);
   const [isDrawing, setIsDrawing] = useState(false);
@@ -232,25 +250,23 @@ export default function Home() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
   const [notification, setNotification] = useState(null);
-  const [showWishlistForm, setShowWishlistForm] = useState(false);
-  const [wishlistSaved, setWishlistSaved] = useState(false);
   const [showRecoveryModal, setShowRecoveryModal] = useState(false);
   const [showEditProfileModal, setShowEditProfileModal] = useState(false);
+  const [newMemberName, setNewMemberName] = useState(''); // Only for adding NEW members
 
   // --- UTILS & EFFECTS ---
   useEffect(() => { if (notification) setTimeout(() => setNotification(null), 3000); }, [notification]);
   useEffect(() => { if (error) setTimeout(() => setError(null), 4000); }, [error]);
-  useEffect(() => { if (wishlistSaved) setTimeout(() => setWishlistSaved(false), 2000); }, [wishlistSaved]);
 
   const generateGroupId = () => {
     const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
     return Array.from({ length: 6 }, () => chars.charAt(Math.floor(Math.random() * chars.length))).join('');
   };
 
-  const fetchLobbyParticipants = useCallback(async () => {
+  const fetchParticipants = useCallback(async () => {
     if (!groupId) return;
     const { data } = await supabase.from('participants').select('*').eq('group_id', groupId).order('created_at', { ascending: true });
-    setLobbyParticipants(data || []);
+    setParticipants(data || []);
   }, [groupId]);
 
   const checkGameStatus = useCallback(async () => {
@@ -270,17 +286,19 @@ export default function Home() {
   }, [groupId]);
 
   useEffect(() => {
-    if (!groupId || appStep !== 'lobby') return;
-    fetchLobbyParticipants();
+    if (!groupId || (appStep !== 'lobby' && appStep !== 'draw')) return;
+    
+    fetchParticipants();
     fetchGroupDetails();
     checkGameStatus();
     
-    const channel = supabase.channel('lobby-channel')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'participants', filter: `group_id=eq.${groupId}` }, fetchLobbyParticipants)
+    // Listen for ALL changes in participants (Insert/Update) to sync status
+    const channel = supabase.channel('group-channel')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'participants', filter: `group_id=eq.${groupId}` }, fetchParticipants)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'draws', filter: `group_id=eq.${groupId}` }, checkGameStatus)
       .subscribe();
     return () => supabase.removeChannel(channel);
-  }, [groupId, appStep, fetchLobbyParticipants, fetchGroupDetails, checkGameStatus]);
+  }, [groupId, appStep, fetchParticipants, fetchGroupDetails, checkGameStatus]);
 
   // --- ACTIONS ---
 
@@ -324,50 +342,38 @@ export default function Home() {
     } catch (err) { setError(err.message); } finally { setIsLoading(false); }
   };
 
-  const handleAddOtherMember = async (name) => {
-    if (!name.trim()) return;
-    const trimmedName = name.trim();
-    if (lobbyParticipants.some(p => p.name.toLowerCase() === trimmedName.toLowerCase())) {
+  const handleAddNewMember = async () => {
+    if (!newMemberName.trim()) return;
+    const trimmedName = newMemberName.trim();
+    if (participants.some(p => p.name.toLowerCase() === trimmedName.toLowerCase())) {
         setError(`"${trimmedName}" มีในกลุ่มแล้ว!`); return;
     }
-    const tempId = Math.random().toString();
-    setLobbyParticipants(prev => [...prev, { id: tempId, name: trimmedName, wishlist: null }]);
     const { error } = await supabase.from('participants').insert({ group_id: groupId, name: trimmedName, has_drawn: false });
-    if(error) { fetchLobbyParticipants(); setError('เพิ่มไม่ได้: ' + error.message); }
+    if(error) { setError('เพิ่มไม่ได้: ' + error.message); } else { setNewMemberName(''); }
   };
 
-  const handleJoinAsParticipant = async () => {
-    if (!myName.trim()) { setError('ใส่ชื่อก่อนนะ!'); return; }
-    try {
+  // Select Identity from Lobby
+  const handleSelectIdentity = async (participant) => {
       setIsLoading(true);
-      const trimmedName = myName.trim();
-      
-      const { data: existingUser } = await supabase.from('participants').select('*').eq('group_id', groupId).ilike('name', trimmedName).single();
-      
-      if (existingUser) {
-        setMyId(existingUser.id);
-        setWishlist(existingUser.wishlist || '');
-        setHobby(existingUser.hobby || '');
-        setMessageToSanta(existingUser.message_to_santa || '');
+      try {
+        setMyId(participant.id);
+        setMyName(participant.name);
+        setWishlist(participant.wishlist || '');
+        setHobby(participant.hobby || '');
+        setMessageToSanta(participant.message_to_santa || '');
         
         // CHECK IF ALREADY DRAWN
-        const { data: drawData } = await supabase.from('draws').select('*, receiver:receiver_id(*)').eq('drawer_id', existingUser.id).single();
+        const { data: drawData } = await supabase.from('draws').select('*, receiver:receiver_id(*)').eq('drawer_id', participant.id).single();
         if (drawData) {
             setMyDrawResult(drawData.receiver);
-            // DIRECT TO RESULT IF DRAWN
-            setAppStep('draw'); // Will show result card automatically based on myDrawResult
-        } else {
-            setAppStep('draw');
         }
-      } else {
-        const { data, error } = await supabase.from('participants').insert({
-          group_id: groupId, name: trimmedName, wishlist: wishlist.trim() || null, hobby: hobby.trim() || null, message_to_santa: messageToSanta.trim() || null, has_drawn: false
-        }).select().single();
-        if(error) throw error;
-        setMyId(data.id);
+        
         setAppStep('draw');
+      } catch (err) {
+        setError('เกิดข้อผิดพลาด');
+      } finally {
+        setIsLoading(false);
       }
-    } catch (err) { setError('เข้ากลุ่มไม่ได้: ' + err.message); } finally { setIsLoading(false); }
   };
 
   const handleUpdateProfile = async (newData) => {
@@ -376,19 +382,6 @@ export default function Home() {
     await supabase.from('participants').update(newData).eq('id', myId);
     setNotification('บันทึกข้อมูลแล้ว! ✅');
   };
-
-  const fetchParticipantsForDraw = useCallback(async () => {
-     if (!groupId) return;
-     const { data } = await supabase.from('participants').select('*').eq('group_id', groupId).order('created_at', { ascending: true });
-     setParticipants(data || []);
-  }, [groupId]);
-
-  useEffect(() => {
-    if (!groupId || appStep !== 'draw') return;
-    fetchParticipantsForDraw();
-    const channel = supabase.channel('draw-channel').on('postgres_changes', { event: '*', schema: 'public', table: 'participants', filter: `group_id=eq.${groupId}` }, fetchParticipantsForDraw).subscribe();
-    return () => supabase.removeChannel(channel);
-  }, [groupId, appStep, fetchParticipantsForDraw]);
 
   const handleDraw = async () => {
     setIsDrawing(true); setShowResultCard(false);
@@ -445,7 +438,7 @@ export default function Home() {
         </div>
         <RecoveryModal isOpen={showRecoveryModal} onClose={() => setShowRecoveryModal(false)} onRecover={(g) => { setGroupId(g.id); setGroupName(g.name); setBudgetMin(g.budget_min); setBudgetMax(g.budget_max); setEventDate(g.event_date); setShowRecoveryModal(false); setAppStep('lobby'); setNotification('ยินดีต้อนรับกลับ! 🎉'); }} />
         
-        {/* EDIT PROFILE MODAL (GLOBAL ACCESS) */}
+        {/* EDIT PROFILE MODAL */}
         <EditProfileModal 
             isOpen={showEditProfileModal} 
             onClose={() => setShowEditProfileModal(false)} 
@@ -457,7 +450,7 @@ export default function Home() {
           
           {/* Header */}
           <div className="text-center mb-6">
-            <div className="inline-block bg-white p-3 rounded-full shadow-lg border-4 border-green-500 mb-2 transform hover:scale-105 transition-transform">
+            <div className="inline-block bg-white p-3 rounded-full shadow-lg border-4 border-green-500 mb-2">
               <span className="text-4xl">🎅</span>
             </div>
             <h1 className="text-3xl font-extrabold text-white drop-shadow-md">Secret Santa</h1>
@@ -474,23 +467,16 @@ export default function Home() {
           )}
 
           {/* MAIN CARD */}
-          <div className="bg-white rounded-3xl p-6 shadow-2xl relative animate-float-slow">
+          <div className={`bg-white rounded-3xl p-6 shadow-2xl relative ${appStep === 'landing' ? 'animate-landing-float' : 'no-float'}`}>
 
             {/* --- STEP 1: LANDING --- */}
             {appStep === 'landing' && (
               <div className="space-y-4 py-4 text-center">
                 <h2 className="text-xl font-bold text-gray-800">ยินดีต้อนรับ! 🎄</h2>
                 <p className="text-gray-500 text-sm mb-6">มาจับฉลากแลกของขวัญกันเถอะ</p>
-                
-                <button onClick={() => setAppStep('create')} className="w-full bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 text-white font-bold py-4 rounded-2xl shadow-lg transition-transform active:scale-95">
-                  🏠 สร้างกลุ่มใหม่
-                </button>
-                <button onClick={() => setAppStep('join')} className="w-full bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold py-4 rounded-2xl transition-colors">
-                  🔑 มีรหัสกลุ่มแล้ว
-                </button>
-                <button onClick={() => setShowRecoveryModal(true)} className="text-gray-400 text-sm underline pt-2">
-                  ลืมรหัสกลุ่ม?
-                </button>
+                <button onClick={() => setAppStep('create')} className="w-full bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 text-white font-bold py-4 rounded-2xl shadow-lg transition-transform active:scale-95">🏠 สร้างกลุ่มใหม่</button>
+                <button onClick={() => setAppStep('join')} className="w-full bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold py-4 rounded-2xl transition-colors">🔑 มีรหัสกลุ่มแล้ว</button>
+                <button onClick={() => setShowRecoveryModal(true)} className="text-gray-400 text-sm underline pt-2">ลืมรหัสกลุ่ม?</button>
               </div>
             )}
 
@@ -498,17 +484,14 @@ export default function Home() {
             {appStep === 'create' && (
               <div className="space-y-5">
                 <h2 className="text-xl font-bold text-gray-800 text-center">สร้างกลุ่มใหม่ 🎉</h2>
-                
                 <div>
                    <label className="block text-sm font-bold text-gray-500 mb-2">ชื่อกลุ่ม</label>
                    <input type="text" value={groupName} onChange={e => setGroupName(e.target.value)} placeholder="เช่น แก๊งออฟฟิศ" className="w-full bg-gray-50 border-2 border-gray-200 rounded-xl px-4 py-3 text-gray-700 font-bold focus:border-green-400 focus:outline-none" autoFocus />
                 </div>
-
                 <div>
                    <label className="block text-sm font-bold text-gray-500 mb-2">📅 วันที่แลกของ (ไม่ระบุก็ได้)</label>
                    <input type="date" value={eventDate} onChange={e => setEventDate(e.target.value)} className="w-full bg-gray-50 border-2 border-gray-200 rounded-xl px-4 py-3 text-gray-700 focus:border-green-400 focus:outline-none" />
                 </div>
-
                 <div className="bg-green-50/50 p-4 rounded-2xl border border-green-100">
                    <label className="block text-sm font-bold text-green-700 text-center mb-3">💰 งบประมาณ (บาท)</label>
                    <div className="flex items-center justify-center gap-6">
@@ -517,12 +500,9 @@ export default function Home() {
                       <BudgetStepper value={budgetMax} onChange={setBudgetMax} min={budgetMin + 100} max={100000} />
                    </div>
                 </div>
-
                 <div className="flex gap-3 pt-2">
                   <button onClick={() => setAppStep('landing')} className="flex-1 bg-gray-100 text-gray-600 font-bold py-3 rounded-xl">กลับ</button>
-                  <button onClick={handleCreateGroup} disabled={isLoading} className="flex-[2] bg-gradient-to-r from-green-500 to-green-600 text-white font-bold py-3 rounded-xl shadow-lg">
-                    {isLoading ? '⏳ ...' : 'สร้างเลย! ✨'}
-                  </button>
+                  <button onClick={handleCreateGroup} disabled={isLoading} className="flex-[2] bg-gradient-to-r from-green-500 to-green-600 text-white font-bold py-3 rounded-xl shadow-lg">{isLoading ? '⏳ ...' : 'สร้างเลย! ✨'}</button>
                 </div>
               </div>
             )}
@@ -537,14 +517,12 @@ export default function Home() {
                 </div>
                 <div className="flex gap-3">
                   <button onClick={() => setAppStep('landing')} className="flex-1 bg-gray-100 text-gray-600 font-bold py-3 rounded-xl">กลับ</button>
-                  <button onClick={handleJoinGroup} disabled={isLoading || groupId.length < 6} className="flex-[2] bg-green-500 text-white font-bold py-3 rounded-xl shadow-lg disabled:opacity-50">
-                     {isLoading ? '⏳ ...' : 'เข้าร่วม →'}
-                  </button>
+                  <button onClick={handleJoinGroup} disabled={isLoading || groupId.length < 6} className="flex-[2] bg-green-500 text-white font-bold py-3 rounded-xl shadow-lg disabled:opacity-50">{isLoading ? '⏳ ...' : 'เข้าร่วม →'}</button>
                 </div>
               </div>
             )}
 
-            {/* --- STEP 4: LOBBY --- */}
+            {/* --- STEP 4: LOBBY (SELECT IDENTITY) --- */}
             {appStep === 'lobby' && (
               <div className="space-y-6">
                 
@@ -568,52 +546,50 @@ export default function Home() {
                    </div>
                 </div>
 
-                {/* Input Name & Wishlist */}
-                <div className="bg-gray-50 p-4 rounded-2xl space-y-3 border border-gray-100">
-                   <label className="block text-sm font-bold text-gray-600">👤 ชื่อของคุณ</label>
-                   <input type="text" value={myName} onChange={e => setMyName(e.target.value)} placeholder="ชื่อเล่น..." className="w-full bg-white border border-gray-200 rounded-xl px-4 py-3 text-gray-700 font-bold focus:border-red-400 focus:outline-none" />
-                   
-                   {!showWishlistForm ? (
-                      <button onClick={() => setShowWishlistForm(true)} className="text-sm text-green-600 font-bold hover:underline flex items-center gap-1">
-                         ✉️ เขียนจดหมายถึง Santa →
-                      </button>
-                   ) : (
-                      <div className="bg-white border-2 border-green-100 p-3 rounded-xl space-y-3 relative animate-fade-in-up">
-                         <button onClick={() => setShowWishlistForm(false)} className="absolute top-2 right-2 text-gray-300 hover:text-gray-500">✕</button>
-                         <input type="text" value={wishlist} onChange={e => {setWishlist(e.target.value); setWishlistSaved(false)}} onBlur={() => wishlist && setWishlistSaved(true)} placeholder="🎁 อยากได้อะไร?" className="w-full bg-gray-50 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-green-400" />
-                         <input type="text" value={hobby} onChange={e => setHobby(e.target.value)} placeholder="🎨 งานอดิเรก" className="w-full bg-gray-50 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-green-400" />
-                         <textarea value={messageToSanta} onChange={e => setMessageToSanta(e.target.value)} placeholder="💌 ฝากบอก Santa..." rows={2} className="w-full bg-gray-50 rounded-lg px-3 py-2 text-sm resize-none focus:outline-none focus:ring-1 focus:ring-green-400" />
-                         {wishlistSaved && <p className="text-center text-xs text-green-500 font-bold">✓ บันทึกแล้ว</p>}
-                      </div>
-                   )}
+                {/* --- SELECTION GRID --- */}
+                <div className="bg-gray-50 p-5 rounded-2xl border border-gray-100">
+                    <h3 className="text-center text-gray-600 font-bold mb-4">👇 คุณคือคนไหน? (จิ้มเลย)</h3>
+                    
+                    <div className="flex flex-wrap justify-center gap-4">
+                        {participants.map(p => (
+                            <SantaIcon 
+                                key={p.id} 
+                                name={p.name} 
+                                hasDrawn={p.has_drawn} // Show Checkmark status
+                                selectable={true} // Enable Hover effect
+                                isMe={false}
+                                onClick={() => handleSelectIdentity(p)}
+                            />
+                        ))}
+                        {participants.length === 0 && <p className="text-gray-300 text-sm italic py-4">ยังไม่มีสมาชิก</p>}
+                    </div>
+
+                    {/* ADD NEW MEMBER SECTION */}
+                    <div className="mt-8 pt-4 border-t border-gray-200">
+                        <p className="text-xs font-bold text-gray-400 mb-2 text-center uppercase">หรือถ้ายังไม่มีชื่อ</p>
+                        <div className="flex gap-2 relative">
+                            {gameStarted && <div className="absolute inset-0 bg-gray-50/80 z-10 flex items-center justify-center text-xs font-bold text-red-500">🎮 เริ่มเกมแล้ว ห้ามเพิ่มคน</div>}
+                            <input 
+                                type="text" 
+                                value={newMemberName}
+                                onChange={(e) => setNewMemberName(e.target.value)}
+                                placeholder="พิมพ์ชื่อเล่น..." 
+                                disabled={gameStarted}
+                                className="flex-1 bg-white border border-gray-200 rounded-xl px-4 py-3 text-sm focus:border-green-400 focus:outline-none disabled:opacity-50" 
+                                onKeyDown={(e) => { if (e.key === 'Enter') handleAddNewMember(); }} 
+                            />
+                            <button 
+                                disabled={gameStarted || !newMemberName.trim()} 
+                                onClick={handleAddNewMember} 
+                                className="bg-green-500 text-white font-bold px-4 rounded-xl hover:bg-green-600 shadow-md disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                                + เพิ่ม
+                            </button>
+                        </div>
+                    </div>
                 </div>
 
-                {/* Members List */}
-                <div className="space-y-2">
-                   <p className="text-sm font-bold text-gray-500 pl-1">👥 สมาชิก ({lobbyParticipants.length} คน)</p>
-                   
-                   <div className="flex gap-2 relative">
-                      {gameStarted && <div className="absolute inset-0 bg-white/50 z-10 flex items-center justify-center text-xs font-bold text-red-500">🎮 เริ่มเกมแล้ว ห้ามเพิ่มคน</div>}
-                      <input id="addMemberInput" type="text" placeholder="พิมพ์ชื่อเพื่อน..." disabled={gameStarted} className="flex-1 bg-white border border-gray-200 rounded-xl px-4 py-3 text-sm focus:border-green-400 focus:outline-none disabled:opacity-50" 
-                        onKeyDown={(e) => { if (e.key === 'Enter' && e.target.value.trim()) { handleAddOtherMember(e.target.value); e.target.value=''; } }} />
-                      <button disabled={gameStarted} onClick={() => { const el = document.getElementById('addMemberInput'); if(el.value.trim()) { handleAddOtherMember(el.value); el.value=''; } }} className="bg-green-100 text-green-600 font-bold px-4 rounded-xl hover:bg-green-200 disabled:opacity-50 disabled:cursor-not-allowed">+</button>
-                   </div>
-                   
-                   <div className="flex flex-wrap gap-2 pt-2">
-                      {lobbyParticipants.map(p => (
-                        <span key={p.id} className="bg-gray-100 text-gray-700 pl-3 pr-1.5 py-1.5 rounded-full text-sm font-bold flex items-center gap-1">
-                           {p.name} {p.wishlist && '🎁'}
-                        </span>
-                      ))}
-                      {lobbyParticipants.length === 0 && <p className="text-gray-300 text-sm italic w-full text-center">ยังไม่มีใครมา...</p>}
-                   </div>
-                </div>
-
-                <div className="pt-4 border-t border-gray-100">
-                   <button onClick={handleJoinAsParticipant} disabled={isLoading || !myName.trim()} className="w-full bg-gradient-to-r from-red-500 to-red-600 text-white font-bold py-4 rounded-2xl shadow-lg active:scale-95 transition-transform disabled:opacity-50">
-                      {isLoading ? '⏳ ...' : '🎅 ไปต่อเลย!'}
-                   </button>
-                </div>
+                <button onClick={() => setAppStep('landing')} className="w-full text-center text-gray-400 text-sm hover:text-gray-600 py-2">← ออกจากกลุ่ม</button>
               </div>
             )}
 
@@ -631,9 +607,9 @@ export default function Home() {
                    </div>
                 </div>
 
-                {/* Grid of Santas */}
+                {/* Grid of Santas (Status) */}
                 <div className="bg-gray-50 rounded-2xl p-4">
-                   <h3 className="font-bold text-gray-400 text-xs mb-3 text-center uppercase tracking-wider">Status</h3>
+                   <h3 className="font-bold text-gray-400 text-xs mb-3 text-center uppercase tracking-wider">สถานะการจับฉลาก</h3>
                    <div className="flex flex-wrap justify-center gap-x-4 gap-y-4">
                       {participants.map(p => <SantaIcon key={p.id} name={p.name} hasDrawn={p.has_drawn} isMe={p.id === myId} />)}
                    </div>
@@ -666,13 +642,9 @@ export default function Home() {
                    </div>
                 )}
                 
-                {!isDrawing && !hasAlreadyDrawn && (
-                  <button onClick={() => setShowEditProfileModal(true)} className="w-full text-center text-gray-400 text-sm hover:text-gray-600 hover:underline">✏️ แก้ไขข้อมูลส่วนตัว</button>
-                )}
-                {/* Always allow edit even if drawn */}
-                {hasAlreadyDrawn && (
-                  <button onClick={() => setShowEditProfileModal(true)} className="w-full text-center text-gray-400 text-sm hover:text-gray-600 mt-2 hover:underline">✏️ อัปเดตข้อมูลให้เพื่อน</button>
-                )}
+                {/* Edit Button Available Always */}
+                <button onClick={() => setShowEditProfileModal(true)} className="w-full text-center text-gray-400 text-sm hover:text-gray-600 mt-2 hover:underline">✏️ แก้ไขข้อมูล / Wishlist</button>
+                <button onClick={() => setAppStep('lobby')} className="w-full text-center text-gray-300 text-xs mt-4 hover:text-gray-500">← กลับไปหน้าเลือกชื่อ</button>
               </div>
             )}
 
@@ -718,7 +690,7 @@ export default function Home() {
 
                 <div className="pt-4">
                    <p className="text-gray-300 text-xs mb-4">🤫 จุ๊ๆ อย่าบอกใครนะ</p>
-                   <button onClick={() => setAppStep('draw')} className="w-full bg-gray-100 hover:bg-gray-200 text-gray-600 font-bold py-3 rounded-xl transition-colors">← กลับหน้าหลัก</button>
+                   <button onClick={() => setAppStep('draw')} className="w-full bg-gray-100 hover:bg-gray-200 text-gray-600 font-bold py-3 rounded-xl transition-colors">← กลับ</button>
                 </div>
               </div>
             )}
