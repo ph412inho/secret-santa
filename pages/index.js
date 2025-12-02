@@ -406,36 +406,72 @@ export default function Home() {
 
   const fetchParticipants = useCallback(async () => {
     if (!groupId) return;
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('participants')
       .select('*')
       .eq('group_id', groupId)
       .order('created_at', { ascending: true });
-    setParticipants(data || []);
+    if (!error) setParticipants(data || []);
   }, [groupId]);
 
   const checkGameStatus = useCallback(async () => {
     if (!groupId) return;
-    const { count } = await supabase
+    const { count, error } = await supabase
       .from('draws')
       .select('*', { count: 'exact', head: true })
       .eq('group_id', groupId);
-    setGameStarted((count || 0) > 0);
+    if (!error) setGameStarted((count || 0) > 0);
   }, [groupId]);
 
   const fetchGroupDetails = useCallback(async () => {
     if (!groupId) return;
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('groups')
       .select('*')
       .eq('id', groupId)
-      .single();
-    if (data) {
-      setEventDate(data.event_date || '');
-      setBudgetMin(data.budget_min);
-      setBudgetMax(data.budget_max);
+      .limit(1);
+    if (!error && data && data.length > 0) {
+      const g = data[0];
+      setEventDate(g.event_date || '');
+      setBudgetMin(g.budget_min);
+      setBudgetMax(g.budget_max);
     }
   }, [groupId]);
+
+  // helper: load who I drew from DB (single source of truth)
+  const fetchMyDrawReceiver = useCallback(
+    async (groupIdParam, drawerId) => {
+      const { data, error } = await supabase
+        .from('draws')
+        .select('receiver_id')
+        .eq('group_id', groupIdParam)
+        .eq('drawer_id', drawerId)
+        .limit(1);
+
+      if (error) {
+        console.error('fetchMyDrawReceiver error', error);
+        return null;
+      }
+      if (!data || data.length === 0) return null;
+
+      const receiverId = data[0].receiver_id;
+      if (!receiverId) return null;
+
+      const { data: receiverData, error: receiverError } = await supabase
+        .from('participants')
+        .select('*')
+        .eq('id', receiverId)
+        .limit(1);
+
+      if (receiverError || !receiverData || receiverData.length === 0) {
+        console.error('fetch receiver participant error', receiverError);
+        return null;
+      }
+
+      return receiverData[0];
+    },
+    []
+  );
 
   useEffect(() => {
     if (!groupId || (appStep !== 'lobby' && appStep !== 'draw')) return;
@@ -499,8 +535,7 @@ export default function Home() {
           budget_min: budgetMin,
           budget_max: budgetMax,
           event_date: eventDate || null,
-        })
-        .single();
+        });
 
       if (createError) throw createError;
       setGroupId(newGroupId);
@@ -524,13 +559,15 @@ export default function Home() {
         .from('groups')
         .select('*')
         .eq('id', groupId.toUpperCase())
-        .single();
-      if (fetchError) throw new Error('ไม่เจอกลุ่มนี้');
-      setGroupId(data.id);
-      setGroupName(data.name);
-      setBudgetMin(data.budget_min);
-      setBudgetMax(data.budget_max);
-      setEventDate(data.event_date || '');
+        .limit(1);
+      if (fetchError || !data || data.length === 0)
+        throw new Error('ไม่เจอกลุ่มนี้');
+      const g = data[0];
+      setGroupId(g.id);
+      setGroupName(g.name);
+      setBudgetMin(g.budget_min);
+      setBudgetMax(g.budget_max);
+      setEventDate(g.event_date || '');
       setAppStep('lobby');
     } catch (err) {
       setError(err.message);
@@ -559,6 +596,7 @@ export default function Home() {
       setError('เพิ่มไม่ได้: ' + error.message);
     } else {
       setNewMemberName('');
+      fetchParticipants();
     }
   };
 
@@ -589,20 +627,12 @@ export default function Home() {
       setHobby(selectedIdentity.hobby || '');
       setMessageToSanta(selectedIdentity.message_to_santa || '');
 
-      const { data: drawData, error: drawError } = await supabase
-        .from('draws')
-        .select('receiver:receiver_id(*)')
-        .eq('group_id', groupId)
-        .eq('drawer_id', currentUserId)
-        .maybeSingle();
+      await fetchParticipants();
 
-      if (drawError && drawError.code !== 'PGRST116') {
-        console.error(drawError);
-        throw drawError;
-      }
+      const receiver = await fetchMyDrawReceiver(groupId, currentUserId);
 
-      if (drawData && drawData.receiver) {
-        setMyDrawResult(drawData.receiver);
+      if (receiver) {
+        setMyDrawResult(receiver);
         setShowResultCard(true);
       } else {
         setMyDrawResult(null);
@@ -632,6 +662,7 @@ export default function Home() {
 
     const me = participants.find((p) => p.id === myId);
     if (isDrawing) return;
+
     if (myDrawResult || me?.has_drawn) {
       setError('คุณจับฉลากไปแล้วนะ!');
       return;
@@ -642,19 +673,9 @@ export default function Home() {
     setError(null);
 
     try {
-      const { data: existingDraw, error: existingError } = await supabase
-        .from('draws')
-        .select('receiver:receiver_id(*)')
-        .eq('group_id', groupId)
-        .eq('drawer_id', myId)
-        .maybeSingle();
-
-      if (existingError && existingError.code !== 'PGRST116') {
-        throw existingError;
-      }
-
-      if (existingDraw && existingDraw.receiver) {
-        setMyDrawResult(existingDraw.receiver);
+      const receiverFromDB = await fetchMyDrawReceiver(groupId, myId);
+      if (receiverFromDB) {
+        setMyDrawResult(receiverFromDB);
         setShowResultCard(true);
         setIsDrawing(false);
         setNotification('คุณจับฉลากไปแล้วนะ ✅');
@@ -708,24 +729,23 @@ export default function Home() {
                   group_id: groupId,
                   drawer_id: myId,
                   receiver_id: finalResult.id,
-                })
-                .single();
+                });
 
               if (insertError) {
                 if (insertError.code === '23505') {
-                  const { data: existingAgain } = await supabase
-                    .from('draws')
-                    .select('receiver:receiver_id(*)')
-                    .eq('group_id', groupId)
-                    .eq('drawer_id', myId)
-                    .maybeSingle();
-                  if (existingAgain && existingAgain.receiver) {
-                    setMyDrawResult(existingAgain.receiver);
+                  const already = await fetchMyDrawReceiver(groupId, myId);
+                  if (already) {
+                    setMyDrawResult(already);
                     setShowResultCard(true);
+                    await fetchParticipants();
+                    await checkGameStatus();
                     return;
                   }
                 }
-                throw insertError;
+
+                console.error('insert draws error', insertError);
+                setError('บันทึกผลไม่สำเร็จ: ' + insertError.message);
+                return;
               }
 
               const { error: updateError } = await supabase
@@ -733,7 +753,10 @@ export default function Home() {
                 .update({ has_drawn: true })
                 .eq('id', myId);
 
-              if (updateError) throw updateError;
+              if (updateError) {
+                console.error('update participant error', updateError);
+                setError('อัปเดตสถานะไม่สำเร็จ: ' + updateError.message);
+              }
 
               setParticipants((prev) =>
                 prev.map((p) =>
@@ -741,11 +764,15 @@ export default function Home() {
                 )
               );
 
-              setMyDrawResult(finalResult);
+              const receiverFromDBFinal = await fetchMyDrawReceiver(
+                groupId,
+                myId
+              );
+
+              setMyDrawResult(receiverFromDBFinal || finalResult);
               setShowResultCard(true);
-            } catch (err) {
-              console.error(err);
-              setError('บันทึกผลไม่สำเร็จ ลองใหม่อีกครั้ง');
+              await fetchParticipants();
+              await checkGameStatus();
             } finally {
               setIsDrawing(false);
             }
@@ -760,7 +787,7 @@ export default function Home() {
   };
 
   const myParticipant = participants.find((p) => p.id === myId);
-  const hasAlreadyDrawn = myParticipant?.has_drawn || myDrawResult !== null;
+  const hasAlreadyDrawn = !!myDrawResult;
   const drawnCount = participants.filter((p) => p.has_drawn).length;
   const totalCount = participants.length;
 
