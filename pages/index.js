@@ -7,8 +7,234 @@ const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBh
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
+// Santa Sleigh Loading Screen Component
+const LoadingScreen = ({ onComplete }) => {
+  const [progress, setProgress] = useState(0);
+  
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setProgress(prev => {
+        if (prev >= 100) {
+          clearInterval(timer);
+          setTimeout(onComplete, 200);
+          return 100;
+        }
+        return prev + 4;
+      });
+    }, 30);
+    return () => clearInterval(timer);
+  }, [onComplete]);
+
+  return (
+    <div className="fixed inset-0 bg-gradient-to-b from-indigo-900 via-indigo-800 to-indigo-900 z-50 flex flex-col items-center justify-center">
+      {/* Stars */}
+      <div className="absolute inset-0 overflow-hidden">
+        {[...Array(20)].map((_, i) => (
+          <div
+            key={i}
+            className="absolute w-1 h-1 bg-white rounded-full animate-pulse"
+            style={{
+              left: `${Math.random() * 100}%`,
+              top: `${Math.random() * 60}%`,
+              animationDelay: `${Math.random() * 2}s`
+            }}
+          />
+        ))}
+      </div>
+      
+      {/* Moon */}
+      <div className="absolute top-10 right-10 w-16 h-16 bg-yellow-100 rounded-full shadow-lg shadow-yellow-200/50" />
+      
+      {/* Santa Sleigh Animation */}
+      <div 
+        className="relative mb-8 transition-all duration-100 ease-linear"
+        style={{ transform: `translateX(${(progress - 50) * 3}px)` }}
+      >
+        <div className="flex items-end gap-1">
+          {/* Reindeer */}
+          <div className="text-4xl animate-bounce" style={{ animationDuration: '0.5s' }}>🦌</div>
+          <div className="text-3xl animate-bounce" style={{ animationDuration: '0.5s', animationDelay: '0.1s' }}>🦌</div>
+          {/* Sleigh */}
+          <div className="text-5xl">🛷</div>
+          {/* Santa */}
+          <div className="text-4xl -ml-6">🎅</div>
+        </div>
+      </div>
+      
+      {/* Progress Bar */}
+      <div className="w-64 h-3 bg-white/20 rounded-full overflow-hidden">
+        <div 
+          className="h-full bg-gradient-to-r from-red-500 to-green-500 rounded-full transition-all duration-100"
+          style={{ width: `${progress}%` }}
+        />
+      </div>
+      
+      <p className="text-white/80 mt-4 text-sm font-medium">กำลังเตรียมบ้านซานต้า...</p>
+    </div>
+  );
+};
+
+// Reindeer Component for Landing Page
+const FloatingReindeer = () => (
+  <div className="absolute bottom-20 left-0 right-0 overflow-hidden pointer-events-none h-16">
+    <div className="animate-reindeer-slide flex items-center gap-2 whitespace-nowrap">
+      <span className="text-3xl">🦌</span>
+      <span className="text-2xl">🦌</span>
+      <span className="text-3xl">🦌</span>
+    </div>
+  </div>
+);
+
+// Santa Icon Component
+const SantaIcon = ({ name, hasDrawn, isMe }) => (
+  <div className={`flex flex-col items-center gap-1 p-2 rounded-xl transition-all ${isMe ? 'bg-red-50 ring-2 ring-red-300' : ''}`}>
+    <div className={`text-3xl ${hasDrawn ? '' : 'grayscale opacity-50'}`}>
+      🎅
+    </div>
+    <span className={`text-xs font-medium truncate max-w-[60px] ${hasDrawn ? 'text-gray-700' : 'text-gray-400'}`}>
+      {name}
+    </span>
+    {hasDrawn && <span className="text-xs text-green-500">✓</span>}
+  </div>
+);
+
+// Group Recovery Modal
+const RecoveryModal = ({ isOpen, onClose, onRecover }) => {
+  const [memberName1, setMemberName1] = useState('');
+  const [memberName2, setMemberName2] = useState('');
+  const [groupNameSearch, setGroupNameSearch] = useState('');
+  const [isSearching, setIsSearching] = useState(false);
+  const [result, setResult] = useState(null);
+  const [error, setError] = useState('');
+
+  const handleSearch = async () => {
+    if (!groupNameSearch.trim() || !memberName1.trim() || !memberName2.trim()) {
+      setError('กรุณากรอกข้อมูลให้ครบ');
+      return;
+    }
+    
+    setIsSearching(true);
+    setError('');
+    setResult(null);
+    
+    try {
+      // Find group by name
+      const { data: groups } = await supabase
+        .from('groups')
+        .select('*')
+        .ilike('name', `%${groupNameSearch.trim()}%`);
+      
+      if (!groups || groups.length === 0) {
+        setError('ไม่พบกลุ่มที่ชื่อนี้');
+        return;
+      }
+      
+      // Check if both members exist in any of these groups
+      for (const group of groups) {
+        const { data: participants } = await supabase
+          .from('participants')
+          .select('name')
+          .eq('group_id', group.id);
+        
+        const names = participants?.map(p => p.name.toLowerCase()) || [];
+        const hasMatch1 = names.some(n => n.includes(memberName1.toLowerCase()));
+        const hasMatch2 = names.some(n => n.includes(memberName2.toLowerCase()));
+        
+        if (hasMatch1 && hasMatch2) {
+          setResult(group);
+          return;
+        }
+      }
+      
+      setError('ไม่พบสมาชิกที่ตรงกัน ลองเช็คชื่ออีกที');
+    } catch (err) {
+      setError('เกิดข้อผิดพลาด');
+    } finally {
+      setIsSearching(false);
+    }
+  };
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-3xl p-6 max-w-sm w-full shadow-2xl">
+        <div className="flex justify-between items-center mb-4">
+          <h3 className="text-lg font-bold text-gray-800">🔍 ค้นหากลุ่มที่ลืมรหัส</h3>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl">✕</button>
+        </div>
+        
+        <div className="space-y-3">
+          <div>
+            <label className="block text-xs font-bold text-gray-500 mb-1">ชื่อกลุ่ม</label>
+            <input
+              type="text"
+              value={groupNameSearch}
+              onChange={(e) => setGroupNameSearch(e.target.value)}
+              placeholder="เช่น แก๊งออฟฟิศ"
+              className="w-full bg-gray-50 border border-gray-200 rounded-xl px-3 py-2 text-sm focus:border-red-400 focus:outline-none"
+            />
+          </div>
+          
+          <div>
+            <label className="block text-xs font-bold text-gray-500 mb-1">ชื่อสมาชิกคนที่ 1</label>
+            <input
+              type="text"
+              value={memberName1}
+              onChange={(e) => setMemberName1(e.target.value)}
+              placeholder="ชื่อเพื่อนในกลุ่ม"
+              className="w-full bg-gray-50 border border-gray-200 rounded-xl px-3 py-2 text-sm focus:border-red-400 focus:outline-none"
+            />
+          </div>
+          
+          <div>
+            <label className="block text-xs font-bold text-gray-500 mb-1">ชื่อสมาชิกคนที่ 2</label>
+            <input
+              type="text"
+              value={memberName2}
+              onChange={(e) => setMemberName2(e.target.value)}
+              placeholder="ชื่อเพื่อนอีกคน"
+              className="w-full bg-gray-50 border border-gray-200 rounded-xl px-3 py-2 text-sm focus:border-red-400 focus:outline-none"
+            />
+          </div>
+          
+          {error && <p className="text-red-500 text-sm text-center">{error}</p>}
+          
+          {result && (
+            <div className="bg-green-50 border border-green-200 rounded-xl p-3 text-center">
+              <p className="text-green-700 font-bold mb-1">พบกลุ่มแล้ว! 🎉</p>
+              <p className="text-gray-600 text-sm">{result.name}</p>
+              <p className="text-2xl font-bold text-gray-800 tracking-widest mt-2">{result.id}</p>
+              <button
+                onClick={() => {
+                  navigator.clipboard.writeText(result.id);
+                  onRecover(result);
+                }}
+                className="mt-2 text-sm text-green-600 font-bold hover:underline"
+              >
+                📋 คัดลอกรหัส & เข้าร่วม
+              </button>
+            </div>
+          )}
+          
+          {!result && (
+            <button
+              onClick={handleSearch}
+              disabled={isSearching}
+              className="w-full bg-gradient-to-r from-red-500 to-red-600 text-white font-bold py-3 rounded-xl transition-all disabled:opacity-50"
+            >
+              {isSearching ? '🔍 กำลังค้นหา...' : '🔍 ค้นหา'}
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
 export default function Home() {
   // App State
+  const [isInitialLoading, setIsInitialLoading] = useState(true);
   const [appStep, setAppStep] = useState('landing');
   
   // Group State
@@ -30,6 +256,7 @@ export default function Home() {
   const [drawnResult, setDrawnResult] = useState(null);
   const [isDrawing, setIsDrawing] = useState(false);
   const [myDrawResult, setMyDrawResult] = useState(null);
+  const [showResultCard, setShowResultCard] = useState(false);
   
   // UI State
   const [isLoading, setIsLoading] = useState(false);
@@ -38,6 +265,8 @@ export default function Home() {
   const [saveStatus, setSaveStatus] = useState(null);
   const [lobbyParticipants, setLobbyParticipants] = useState([]);
   const [showWishlistForm, setShowWishlistForm] = useState(false);
+  const [wishlistSaved, setWishlistSaved] = useState(false);
+  const [showRecoveryModal, setShowRecoveryModal] = useState(false);
 
   // Auto-hide notifications
   useEffect(() => {
@@ -53,6 +282,14 @@ export default function Home() {
       return () => clearTimeout(timer);
     }
   }, [error]);
+
+  // Auto-save indicator for wishlist
+  useEffect(() => {
+    if (wishlistSaved) {
+      const timer = setTimeout(() => setWishlistSaved(false), 2000);
+      return () => clearTimeout(timer);
+    }
+  }, [wishlistSaved]);
 
   // Generate Group ID
   const generateGroupId = () => {
@@ -87,7 +324,7 @@ export default function Home() {
     return () => supabase.removeChannel(channel);
   }, [groupId, appStep, fetchLobbyParticipants]);
 
-  // Create Group (FIXED BUG)
+  // Create Group
   const handleCreateGroup = async () => {
     if (!groupName.trim()) {
       setError('ตั้งชื่อกลุ่มก่อนนะ!');
@@ -150,18 +387,12 @@ export default function Home() {
     }
   };
 
-  // Add Other Member (with duplicate check)
+  // Add Other Member
   const handleAddOtherMember = async (name) => {
     if (!name.trim()) return;
     
     const trimmedName = name.trim();
-    
-    // Check duplicate with existing participants
-    const isDuplicate = lobbyParticipants.some(
-      p => p.name.toLowerCase() === trimmedName.toLowerCase()
-    );
-    
-    // Check duplicate with my own name
+    const isDuplicate = lobbyParticipants.some(p => p.name.toLowerCase() === trimmedName.toLowerCase());
     const isSameAsMe = myName.trim().toLowerCase() === trimmedName.toLowerCase();
     
     if (isDuplicate || isSameAsMe) {
@@ -201,25 +432,18 @@ export default function Home() {
       return;
     }
     
-    // Check if name already exists
-    const isDuplicate = lobbyParticipants.some(
-      p => p.name.toLowerCase() === myName.trim().toLowerCase()
-    );
+    const isDuplicate = lobbyParticipants.some(p => p.name.toLowerCase() === myName.trim().toLowerCase());
     
     try {
       setIsLoading(true);
       
       if (isDuplicate) {
-        // Already exists - just log in as that person
-        const existing = lobbyParticipants.find(
-          p => p.name.toLowerCase() === myName.trim().toLowerCase()
-        );
+        const existing = lobbyParticipants.find(p => p.name.toLowerCase() === myName.trim().toLowerCase());
         setMyId(existing.id);
         setWishlist(existing.wishlist || '');
         setHobby(existing.hobby || '');
         setMessageToSanta(existing.message_to_santa || '');
         
-        // Check if already drawn
         const { data: drawData } = await supabase
           .from('draws')
           .select('*, receiver:receiver_id(name, wishlist, hobby, message_to_santa)')
@@ -227,7 +451,6 @@ export default function Home() {
           .single();
         if (drawData) setMyDrawResult(drawData.receiver);
       } else {
-        // Create new participant
         const { data, error: insertError } = await supabase
           .from('participants')
           .insert({
@@ -267,7 +490,7 @@ export default function Home() {
         .eq('id', myId);
       if (updateError) throw updateError;
       setSaveStatus('saved');
-      setTimeout(() => setSaveStatus(null), 2000);
+      setTimeout(() => setSaveStatus(null), 1500);
     } catch (err) {
       setError('บันทึกไม่สำเร็จ');
       setSaveStatus(null);
@@ -301,9 +524,10 @@ export default function Home() {
     return () => supabase.removeChannel(channel);
   }, [groupId, appStep, fetchParticipants]);
 
-  // Handle Draw
+  // Handle Draw with slower reveal
   const handleDraw = async () => {
     setIsDrawing(true);
+    setShowResultCard(false);
     
     const { data: draws } = await supabase
       .from('draws')
@@ -319,19 +543,24 @@ export default function Home() {
       return;
     }
 
-    // Animation
+    // Longer animation
     let count = 0;
     const interval = setInterval(() => {
       setDrawnResult(validReceivers[Math.floor(Math.random() * validReceivers.length)]);
       count++;
-      if (count > 20) {
+      if (count > 25) {
         clearInterval(interval);
         const finalResult = validReceivers[Math.floor(Math.random() * validReceivers.length)];
         setDrawnResult(finalResult);
-        setIsDrawing(false);
-        saveDrawResult(finalResult);
+        
+        // Delay before showing result
+        setTimeout(() => {
+          setIsDrawing(false);
+          setShowResultCard(true);
+          saveDrawResult(finalResult);
+        }, 1500);
       }
-    }, 80);
+    }, 100);
   };
 
   // Save Draw Result
@@ -340,7 +569,6 @@ export default function Home() {
       await supabase.from('draws').insert({ group_id: groupId, drawer_id: myId, receiver_id: receiver.id });
       await supabase.from('participants').update({ has_drawn: true }).eq('id', myId);
       setMyDrawResult(receiver);
-      setAppStep('result');
     } catch (err) {
       setError('บันทึกไม่สำเร็จ: ' + err.message);
     }
@@ -352,34 +580,43 @@ export default function Home() {
   const myParticipant = participants.find(p => p.id === myId);
   const hasAlreadyDrawn = myParticipant?.has_drawn || myDrawResult;
 
-  // Budget Step Component
-  const BudgetStepper = ({ value, onChange, label }) => (
-    <div className="flex items-center gap-2">
+  // Budget Stepper Component
+  const BudgetStepper = ({ value, onChange, min = 100, max = 10000 }) => (
+    <div className="flex items-center gap-2 bg-white rounded-xl p-1 border border-gray-200">
       <button
         type="button"
-        onClick={() => onChange(Math.max(0, value - 100))}
-        className="w-10 h-10 bg-white border-2 border-gray-200 rounded-xl font-bold text-gray-500 hover:border-red-300 hover:text-red-500 transition-all active:scale-95"
+        onClick={() => onChange(Math.max(min, value - 100))}
+        disabled={value <= min}
+        className="w-10 h-10 bg-red-50 hover:bg-red-100 rounded-lg font-bold text-red-500 transition-all active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed"
       >
         −
       </button>
-      <div className="flex-1 text-center">
-        <input
-          type="number"
-          value={value}
-          onChange={(e) => onChange(Math.max(0, Number(e.target.value)))}
-          className="w-full text-center bg-gray-50 border-2 border-gray-200 rounded-xl py-2 font-bold text-gray-700 focus:border-red-400 focus:outline-none"
-        />
-        <span className="text-xs text-gray-400">{label}</span>
-      </div>
+      <input
+        type="number"
+        value={value}
+        onChange={(e) => {
+          const newVal = Math.min(max, Math.max(min, Number(e.target.value)));
+          onChange(newVal);
+        }}
+        className="w-20 text-center bg-transparent font-bold text-gray-700 focus:outline-none"
+        min={min}
+        max={max}
+      />
       <button
         type="button"
-        onClick={() => onChange(value + 100)}
-        className="w-10 h-10 bg-white border-2 border-gray-200 rounded-xl font-bold text-gray-500 hover:border-green-300 hover:text-green-500 transition-all active:scale-95"
+        onClick={() => onChange(Math.min(max, value + 100))}
+        disabled={value >= max}
+        className="w-10 h-10 bg-green-50 hover:bg-green-100 rounded-lg font-bold text-green-500 transition-all active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed"
       >
         +
       </button>
     </div>
   );
+
+  // Show loading screen initially
+  if (isInitialLoading) {
+    return <LoadingScreen onComplete={() => setIsInitialLoading(false)} />;
+  }
 
   return (
     <>
@@ -389,36 +626,66 @@ export default function Home() {
         <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800&display=swap" rel="stylesheet" />
       </Head>
 
-      <div className="min-h-screen bg-gradient-to-b from-red-600 via-red-500 to-red-700 font-['Nunito'] selection:bg-green-300">
+      <style jsx global>{`
+        @keyframes reindeer-slide {
+          0% { transform: translateX(-100px); }
+          100% { transform: translateX(calc(100vw + 100px)); }
+        }
+        .animate-reindeer-slide {
+          animation: reindeer-slide 8s linear infinite;
+        }
+        @keyframes float {
+          0%, 100% { transform: translateY(0); }
+          50% { transform: translateY(-10px); }
+        }
+        .animate-float {
+          animation: float 3s ease-in-out infinite;
+        }
+        @keyframes shake {
+          0%, 100% { transform: translateX(0); }
+          25% { transform: translateX(-5px); }
+          75% { transform: translateX(5px); }
+        }
+        .animate-shake { animation: shake 0.3s ease-in-out; }
+        @keyframes confetti {
+          0% { transform: translateY(0) rotate(0deg); opacity: 1; }
+          100% { transform: translateY(100px) rotate(720deg); opacity: 0; }
+        }
+        .animate-confetti { animation: confetti 1s ease-out forwards; }
+      `}</style>
+
+      <div className="min-h-screen bg-gradient-to-b from-red-600 via-red-500 to-red-700 font-['Nunito'] selection:bg-green-300 relative">
         
         {/* Snow particles */}
         <div className="fixed inset-0 pointer-events-none overflow-hidden">
-          {[...Array(15)].map((_, i) => (
+          {[...Array(12)].map((_, i) => (
             <div
               key={i}
-              className="absolute w-2 h-2 bg-white rounded-full opacity-60"
+              className="absolute w-2 h-2 bg-white rounded-full opacity-60 animate-float"
               style={{
                 left: `${Math.random() * 100}%`,
                 top: `${Math.random() * 100}%`,
-                animation: `float ${3 + Math.random() * 4}s ease-in-out infinite`,
-                animationDelay: `${Math.random() * 2}s`
+                animationDelay: `${Math.random() * 2}s`,
+                animationDuration: `${3 + Math.random() * 2}s`
               }}
             />
           ))}
         </div>
 
-        <style jsx global>{`
-          @keyframes float {
-            0%, 100% { transform: translateY(0) rotate(0deg); opacity: 0.6; }
-            50% { transform: translateY(-20px) rotate(180deg); opacity: 1; }
-          }
-          @keyframes shake {
-            0%, 100% { transform: translateX(0); }
-            25% { transform: translateX(-5px); }
-            75% { transform: translateX(5px); }
-          }
-          .animate-shake { animation: shake 0.3s ease-in-out; }
-        `}</style>
+        {/* Recovery Modal */}
+        <RecoveryModal 
+          isOpen={showRecoveryModal} 
+          onClose={() => setShowRecoveryModal(false)}
+          onRecover={(group) => {
+            setGroupId(group.id);
+            setGroupName(group.name);
+            setBudgetMin(group.budget_min);
+            setBudgetMax(group.budget_max);
+            setShowRecoveryModal(false);
+            setAppStep('lobby');
+            setNotification('เข้ากลุ่มสำเร็จ! 🎉');
+          }}
+        />
 
         <div className="container mx-auto px-4 py-6 max-w-md relative z-10">
           
@@ -452,11 +719,13 @@ export default function Home() {
           )}
 
           {/* Main Card */}
-          <div className="bg-white rounded-3xl p-6 shadow-2xl">
+          <div className="bg-white rounded-3xl p-6 shadow-2xl relative overflow-hidden">
             
             {/* LANDING */}
             {appStep === 'landing' && (
-              <div className="space-y-4 py-4">
+              <div className="space-y-4 py-4 relative">
+                <FloatingReindeer />
+                
                 <div className="text-center mb-6">
                   <h2 className="text-xl font-bold text-gray-800">ยินดีต้อนรับ! 🎄</h2>
                   <p className="text-gray-500 text-sm mt-1">พร้อมจับฉลากกันหรือยัง?</p>
@@ -474,6 +743,13 @@ export default function Home() {
                   className="w-full bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold py-4 px-6 rounded-2xl transition-all"
                 >
                   🔑 มีรหัสกลุ่มแล้ว
+                </button>
+                
+                <button
+                  onClick={() => setShowRecoveryModal(true)}
+                  className="w-full text-gray-400 hover:text-gray-600 text-sm py-2 underline"
+                >
+                  🔍 ลืมรหัสกลุ่ม?
                 </button>
               </div>
             )}
@@ -497,12 +773,14 @@ export default function Home() {
                   />
                 </div>
 
-                <div className="bg-green-50 p-4 rounded-2xl space-y-4">
-                  <label className="block text-sm font-bold text-green-700">💰 งบประมาณ (บาท)</label>
-                  <div className="grid grid-cols-2 gap-4">
-                    <BudgetStepper value={budgetMin} onChange={setBudgetMin} label="ขั้นต่ำ" />
-                    <BudgetStepper value={budgetMax} onChange={setBudgetMax} label="สูงสุด" />
+                <div className="bg-gradient-to-r from-green-50 to-emerald-50 p-4 rounded-2xl space-y-3">
+                  <label className="block text-sm font-bold text-green-700 text-center">💰 งบประมาณ (บาท)</label>
+                  <div className="flex items-center justify-center gap-4">
+                    <BudgetStepper value={budgetMin} onChange={setBudgetMin} min={100} max={budgetMax - 100} />
+                    <span className="text-gray-400 font-bold">→</span>
+                    <BudgetStepper value={budgetMax} onChange={setBudgetMax} min={budgetMin + 100} max={10000} />
                   </div>
+                  <p className="text-center text-xs text-gray-400">กด +/- เพื่อปรับทีละ 100 บาท</p>
                 </div>
 
                 <div className="flex gap-3 pt-2">
@@ -565,7 +843,7 @@ export default function Home() {
             {appStep === 'lobby' && (
               <div className="space-y-5">
                 
-                {/* Group Code - Tap to Copy */}
+                {/* Group Code */}
                 <div 
                   onClick={() => {
                     navigator.clipboard.writeText(groupId);
@@ -606,43 +884,51 @@ export default function Home() {
                     <div className="bg-white border-2 border-green-200 p-4 rounded-xl space-y-3 relative">
                       <button
                         onClick={() => setShowWishlistForm(false)}
-                        className="absolute top-2 right-2 text-gray-400 hover:text-gray-600 text-lg"
+                        className="absolute top-2 right-2 w-6 h-6 bg-gray-100 hover:bg-gray-200 rounded-full text-gray-400 hover:text-gray-600 flex items-center justify-center text-sm transition-colors"
                       >
                         ✕
                       </button>
                       
                       <div>
-                        <label className="block text-xs font-bold text-gray-500 mb-1">🎁 Wishlist - อยากได้อะไร?</label>
+                        <label className="block text-xs font-bold text-gray-600 mb-1">🎁 Wishlist - อยากได้อะไร?</label>
                         <input
                           type="text"
                           value={wishlist}
-                          onChange={(e) => setWishlist(e.target.value)}
+                          onChange={(e) => { setWishlist(e.target.value); setWishlistSaved(false); }}
+                          onBlur={() => { if (wishlist) setWishlistSaved(true); }}
                           placeholder="เช่น หนังสือ, ขนม, สกินแคร์"
-                          className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-gray-700 text-sm focus:border-green-400 focus:outline-none"
+                          className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2.5 text-gray-700 focus:border-green-400 focus:outline-none"
                         />
                       </div>
                       
                       <div>
-                        <label className="block text-xs font-bold text-gray-500 mb-1">🎨 งานอดิเรก</label>
+                        <label className="block text-xs font-bold text-gray-600 mb-1">🎨 งานอดิเรก</label>
                         <input
                           type="text"
                           value={hobby}
                           onChange={(e) => setHobby(e.target.value)}
                           placeholder="เช่น อ่านหนังสือ, ดูหนัง, เล่นเกม"
-                          className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-gray-700 text-sm focus:border-green-400 focus:outline-none"
+                          className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2.5 text-gray-700 focus:border-green-400 focus:outline-none"
                         />
                       </div>
                       
                       <div>
-                        <label className="block text-xs font-bold text-gray-500 mb-1">💌 ข้อความถึง Santa</label>
+                        <label className="block text-xs font-bold text-gray-600 mb-1">💌 ข้อความถึง Santa</label>
                         <textarea
                           value={messageToSanta}
                           onChange={(e) => setMessageToSanta(e.target.value)}
                           placeholder="บอกอะไร Santa เพิ่มเติมได้นะ..."
                           rows={2}
-                          className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-gray-700 text-sm focus:border-green-400 focus:outline-none resize-none"
+                          className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2.5 text-gray-700 focus:border-green-400 focus:outline-none resize-none"
                         />
                       </div>
+                      
+                      {/* Auto-save indicator */}
+                      {wishlistSaved && (
+                        <div className="flex items-center justify-center gap-2 text-green-600 text-sm font-medium bg-green-50 py-2 rounded-lg">
+                          <span>✓</span> พร้อมส่งถึง Santa แล้ว!
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
@@ -680,18 +966,18 @@ export default function Home() {
                     </button>
                   </div>
 
-                  {/* Members List with Delete */}
+                  {/* Members List - Always show delete button */}
                   <div className="flex flex-wrap gap-2">
                     {lobbyParticipants.map((p) => (
                       <span
                         key={p.id}
-                        className="bg-gray-100 text-gray-700 pl-3 pr-1 py-1.5 rounded-full text-sm font-medium flex items-center gap-1 group"
+                        className="bg-gray-100 text-gray-700 pl-3 pr-1.5 py-1.5 rounded-full text-sm font-medium flex items-center gap-1.5"
                       >
                         {p.name}
                         {p.wishlist && <span className="text-green-500">🎁</span>}
                         <button
                           onClick={() => handleDeleteMember(p.id, p.name)}
-                          className="ml-1 w-5 h-5 rounded-full bg-gray-200 hover:bg-red-100 text-gray-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all flex items-center justify-center text-xs"
+                          className="w-5 h-5 rounded-full bg-gray-200 hover:bg-red-100 text-gray-400 hover:text-red-500 transition-all flex items-center justify-center text-xs"
                         >
                           ✕
                         </button>
@@ -736,8 +1022,40 @@ export default function Home() {
                   </div>
                 </div>
 
-                {/* Already Drawn */}
-                {hasAlreadyDrawn && myDrawResult ? (
+                {/* Participants Grid - Santa Icons */}
+                <div className="bg-gray-50 rounded-2xl p-4">
+                  <h3 className="font-bold text-gray-600 text-sm mb-3 text-center">👥 เพื่อนๆ ในกลุ่ม</h3>
+                  <div className="flex flex-wrap justify-center gap-2">
+                    {participants.map((p) => (
+                      <SantaIcon 
+                        key={p.id} 
+                        name={p.name} 
+                        hasDrawn={p.has_drawn} 
+                        isMe={p.id === myId}
+                      />
+                    ))}
+                  </div>
+                </div>
+
+                {/* Already Drawn or Show Result Card */}
+                {showResultCard && drawnResult ? (
+                  <div className="bg-gradient-to-br from-red-50 to-rose-50 border-2 border-red-200 rounded-2xl p-6 text-center animate-float">
+                    <div className="text-4xl mb-2">🎉</div>
+                    <p className="text-red-600 font-bold mb-2">คุณจับได้!</p>
+                    <p className="text-3xl font-bold text-gray-800 mb-3">{drawnResult.name}</p>
+                    {drawnResult.wishlist && (
+                      <div className="bg-white rounded-xl p-3 text-sm text-gray-600 mb-3">
+                        🎁 "{drawnResult.wishlist}"
+                      </div>
+                    )}
+                    <button
+                      onClick={() => setAppStep('result')}
+                      className="bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-6 rounded-xl transition-all"
+                    >
+                      ดูรายละเอียด →
+                    </button>
+                  </div>
+                ) : hasAlreadyDrawn && myDrawResult ? (
                   <div className="bg-gradient-to-br from-green-50 to-emerald-50 border-2 border-green-200 rounded-2xl p-6 text-center">
                     <p className="text-green-600 font-bold mb-2">🎉 คุณจับได้แล้ว!</p>
                     <p className="text-3xl font-bold text-gray-800 mb-3">{myDrawResult.name}</p>
@@ -762,90 +1080,67 @@ export default function Home() {
                         <p>รอเพื่อนเพิ่ม...</p>
                         <p className="text-xs">({participants.length}/2 คนขึ้นไป)</p>
                       </div>
+                    ) : isDrawing ? (
+                      <div className="space-y-4">
+                        <div className="text-6xl animate-bounce">🎲</div>
+                        <div className="bg-gradient-to-r from-red-500 to-rose-500 text-white text-2xl font-bold py-4 px-8 rounded-2xl inline-block animate-pulse">
+                          {drawnResult?.name || '...'}
+                        </div>
+                        <p className="text-gray-400 text-sm">กำลังสุ่ม...</p>
+                      </div>
                     ) : (
                       <button
                         onClick={handleDraw}
-                        disabled={isDrawing}
-                        className={`w-40 h-40 rounded-full font-bold text-xl text-white shadow-xl transition-all transform hover:scale-105 active:scale-95 flex flex-col items-center justify-center gap-2 mx-auto ${
-                          isDrawing ? 'bg-gray-300' : 'bg-gradient-to-br from-red-500 to-red-600 hover:from-red-600 hover:to-red-700'
-                        }`}
+                        className="w-40 h-40 rounded-full font-bold text-xl text-white shadow-xl transition-all transform hover:scale-105 active:scale-95 flex flex-col items-center justify-center gap-2 mx-auto bg-gradient-to-br from-red-500 to-red-600 hover:from-red-600 hover:to-red-700"
                       >
-                        {isDrawing ? (
-                          <>
-                            <span className="text-4xl animate-bounce">🎲</span>
-                            <span className="text-sm">{drawnResult?.name || '...'}</span>
-                          </>
-                        ) : (
-                          <>
-                            <span className="text-4xl">🎁</span>
-                            <span>จับเลย!</span>
-                          </>
-                        )}
+                        <span className="text-4xl">🎁</span>
+                        <span>จับเลย!</span>
                       </button>
                     )}
                   </div>
                 )}
 
-                {/* Status */}
-                <div className="bg-gray-50 rounded-2xl p-4 space-y-3">
-                  <h3 className="font-bold text-gray-600 text-sm">📊 สถานะ</h3>
-                  
-                  {pendingDraw.length > 0 && (
-                    <div className="flex items-start gap-2 text-sm">
-                      <span className="w-2 h-2 bg-amber-400 rounded-full mt-1.5"></span>
-                      <div>
-                        <span className="text-gray-500">รอจับ: </span>
-                        <span className="text-gray-700 font-medium">{pendingDraw.map(p => p.name).join(', ')}</span>
-                      </div>
-                    </div>
-                  )}
-                  
-                  {completedDraw.length > 0 && (
-                    <div className="flex items-center gap-2 text-sm">
-                      <span className="w-2 h-2 bg-green-500 rounded-full"></span>
-                      <span className="text-green-600 font-medium">จับแล้ว: {completedDraw.length} คน ✓</span>
-                    </div>
-                  )}
-                </div>
-
                 {/* Edit Profile */}
-                <div className="bg-gray-50 rounded-2xl p-4 space-y-3">
-                  <h3 className="font-bold text-gray-600 text-sm">✏️ แก้ไขข้อมูล</h3>
-                  <input
-                    type="text"
-                    value={wishlist}
-                    onChange={(e) => setWishlist(e.target.value)}
-                    placeholder="🎁 Wishlist"
-                    className="w-full bg-white border border-gray-200 rounded-xl px-3 py-2 text-gray-700 text-sm focus:border-green-400 focus:outline-none"
-                  />
-                  <input
-                    type="text"
-                    value={hobby}
-                    onChange={(e) => setHobby(e.target.value)}
-                    placeholder="🎨 งานอดิเรก"
-                    className="w-full bg-white border border-gray-200 rounded-xl px-3 py-2 text-gray-700 text-sm focus:border-green-400 focus:outline-none"
-                  />
-                  <textarea
-                    value={messageToSanta}
-                    onChange={(e) => setMessageToSanta(e.target.value)}
-                    placeholder="💌 ข้อความถึง Santa"
-                    rows={2}
-                    className="w-full bg-white border border-gray-200 rounded-xl px-3 py-2 text-gray-700 text-sm focus:border-green-400 focus:outline-none resize-none"
-                  />
-                  <button
-                    onClick={handleUpdateProfile}
-                    disabled={saveStatus === 'saving'}
-                    className={`w-full py-2.5 rounded-xl font-bold text-sm transition-all ${
-                      saveStatus === 'saved'
-                        ? 'bg-green-500 text-white'
-                        : saveStatus === 'saving'
-                        ? 'bg-gray-200 text-gray-400'
-                        : 'bg-gray-200 hover:bg-gray-300 text-gray-600'
-                    }`}
-                  >
-                    {saveStatus === 'saving' ? '⏳ กำลังบันทึก...' : saveStatus === 'saved' ? '✅ บันทึกแล้ว!' : '💾 บันทึก'}
-                  </button>
-                </div>
+                {!isDrawing && (
+                  <div className="bg-gray-50 rounded-2xl p-4 space-y-3">
+                    <h3 className="font-bold text-gray-600 text-sm">✏️ แก้ไขข้อมูลของฉัน</h3>
+                    <input
+                      type="text"
+                      value={wishlist}
+                      onChange={(e) => setWishlist(e.target.value)}
+                      placeholder="🎁 Wishlist"
+                      className="w-full bg-white border border-gray-200 rounded-xl px-3 py-2.5 text-gray-700 focus:border-green-400 focus:outline-none"
+                    />
+                    <input
+                      type="text"
+                      value={hobby}
+                      onChange={(e) => setHobby(e.target.value)}
+                      placeholder="🎨 งานอดิเรก"
+                      className="w-full bg-white border border-gray-200 rounded-xl px-3 py-2.5 text-gray-700 focus:border-green-400 focus:outline-none"
+                    />
+                    <textarea
+                      value={messageToSanta}
+                      onChange={(e) => setMessageToSanta(e.target.value)}
+                      placeholder="💌 ข้อความถึง Santa"
+                      rows={2}
+                      className="w-full bg-white border border-gray-200 rounded-xl px-3 py-2.5 text-gray-700 focus:border-green-400 focus:outline-none resize-none"
+                    />
+                    <button
+                      onClick={handleUpdateProfile}
+                      disabled={saveStatus === 'saving'}
+                      className={`w-full py-2.5 rounded-xl font-bold text-sm transition-all flex items-center justify-center gap-2 ${
+                        saveStatus === 'saved'
+                          ? 'bg-green-500 text-white'
+                          : saveStatus === 'saving'
+                          ? 'bg-gray-200 text-gray-400'
+                          : 'bg-gray-200 hover:bg-gray-300 text-gray-600'
+                      }`}
+                    >
+                      {saveStatus === 'saving' && <span className="animate-spin">⏳</span>}
+                      {saveStatus === 'saving' ? 'กำลังบันทึก...' : saveStatus === 'saved' ? '✅ บันทึกแล้ว!' : '💾 บันทึก'}
+                    </button>
+                  </div>
+                )}
               </div>
             )}
 
