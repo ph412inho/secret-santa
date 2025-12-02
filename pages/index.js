@@ -580,4 +580,161 @@ export default function Home() {
                    ) : (
                       <div className="bg-white border-2 border-green-100 p-3 rounded-xl space-y-3 relative animate-fade-in-up">
                          <button onClick={() => setShowWishlistForm(false)} className="absolute top-2 right-2 text-gray-300 hover:text-gray-500">✕</button>
-                         <input type="text" value={wishlist} onChange={e => {setWishlist(e.target.value); setWishlistSaved(false)}} onBlur={() => wishlist && setWishlistSaved(true)} placeholder="🎁 อยาก
+                         <input type="text" value={wishlist} onChange={e => {setWishlist(e.target.value); setWishlistSaved(false)}} onBlur={() => wishlist && setWishlistSaved(true)} placeholder="🎁 อยากได้อะไร?" className="w-full bg-gray-50 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-green-400" />
+                         <input type="text" value={hobby} onChange={e => setHobby(e.target.value)} placeholder="🎨 งานอดิเรก" className="w-full bg-gray-50 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-green-400" />
+                         <textarea value={messageToSanta} onChange={e => setMessageToSanta(e.target.value)} placeholder="💌 ฝากบอก Santa..." rows={2} className="w-full bg-gray-50 rounded-lg px-3 py-2 text-sm resize-none focus:outline-none focus:ring-1 focus:ring-green-400" />
+                         {wishlistSaved && <p className="text-center text-xs text-green-500 font-bold">✓ บันทึกแล้ว</p>}
+                      </div>
+                   )}
+                </div>
+
+                {/* Members List */}
+                <div className="space-y-2">
+                   <p className="text-sm font-bold text-gray-500 pl-1">👥 สมาชิก ({lobbyParticipants.length} คน)</p>
+                   
+                   <div className="flex gap-2 relative">
+                      {gameStarted && <div className="absolute inset-0 bg-white/50 z-10 flex items-center justify-center text-xs font-bold text-red-500">🎮 เริ่มเกมแล้ว ห้ามเพิ่มคน</div>}
+                      <input id="addMemberInput" type="text" placeholder="พิมพ์ชื่อเพื่อน..." disabled={gameStarted} className="flex-1 bg-white border border-gray-200 rounded-xl px-4 py-3 text-sm focus:border-green-400 focus:outline-none disabled:opacity-50" 
+                        onKeyDown={(e) => { if (e.key === 'Enter' && e.target.value.trim()) { handleAddOtherMember(e.target.value); e.target.value=''; } }} />
+                      <button disabled={gameStarted} onClick={() => { const el = document.getElementById('addMemberInput'); if(el.value.trim()) { handleAddOtherMember(el.value); el.value=''; } }} className="bg-green-100 text-green-600 font-bold px-4 rounded-xl hover:bg-green-200 disabled:opacity-50 disabled:cursor-not-allowed">+</button>
+                   </div>
+                   
+                   <div className="flex flex-wrap gap-2 pt-2">
+                      {lobbyParticipants.map(p => (
+                        <span key={p.id} className="bg-gray-100 text-gray-700 pl-3 pr-1.5 py-1.5 rounded-full text-sm font-bold flex items-center gap-1">
+                           {p.name} {p.wishlist && '🎁'}
+                        </span>
+                      ))}
+                      {lobbyParticipants.length === 0 && <p className="text-gray-300 text-sm italic w-full text-center">ยังไม่มีใครมา...</p>}
+                   </div>
+                </div>
+
+                <div className="pt-4 border-t border-gray-100">
+                   <button onClick={handleJoinAsParticipant} disabled={isLoading || !myName.trim()} className="w-full bg-gradient-to-r from-red-500 to-red-600 text-white font-bold py-4 rounded-2xl shadow-lg active:scale-95 transition-transform disabled:opacity-50">
+                      {isLoading ? '⏳ ...' : '🎅 ไปต่อเลย!'}
+                   </button>
+                </div>
+              </div>
+            )}
+
+            {/* --- STEP 5: DRAW & STATUS --- */}
+            {appStep === 'draw' && (
+              <div className="space-y-6">
+                <div className="flex justify-between items-end border-b border-gray-100 pb-4">
+                   <div>
+                      <h2 className="text-xl font-bold text-gray-800">{groupName}</h2>
+                      <p className="text-sm text-gray-500">หวัดดี <span className="text-red-500 font-bold">{myName}</span>!</p>
+                   </div>
+                   <div className="text-right flex flex-col items-end gap-1">
+                      <span className="text-xs bg-gray-100 text-gray-500 px-2 py-0.5 rounded-md">งบ {budgetMin}-{budgetMax}</span>
+                      {eventDate && <span className="text-xs bg-red-50 text-red-500 px-2 py-0.5 rounded-md font-bold">📅 {formatDate(eventDate)}</span>}
+                   </div>
+                </div>
+
+                {/* Grid of Santas */}
+                <div className="bg-gray-50 rounded-2xl p-4">
+                   <h3 className="font-bold text-gray-400 text-xs mb-3 text-center uppercase tracking-wider">Status</h3>
+                   <div className="flex flex-wrap justify-center gap-x-4 gap-y-4">
+                      {participants.map(p => <SantaIcon key={p.id} name={p.name} hasDrawn={p.has_drawn} isMe={p.id === myId} />)}
+                   </div>
+                </div>
+
+                {/* Action Area */}
+                {showResultCard && drawnResult ? (
+                   <div className="bg-gradient-to-br from-red-50 to-orange-50 border-2 border-red-100 rounded-3xl p-6 text-center animate-fade-in-up shadow-sm">
+                      <p className="text-red-500 font-bold text-sm mb-2">ภารกิจของคุณคือ...</p>
+                      <p className="text-3xl font-extrabold text-gray-800 mb-4">{drawnResult.name}</p>
+                      {drawnResult.wishlist && <div className="bg-white/80 p-2 rounded-lg text-sm text-gray-600 mb-4">🎁 "{drawnResult.wishlist}"</div>}
+                      <button onClick={() => setAppStep('result')} className="bg-red-500 text-white font-bold py-2 px-6 rounded-full shadow-lg hover:bg-red-600">ดูรายละเอียดลับ 🕵️</button>
+                   </div>
+                ) : hasAlreadyDrawn && myDrawResult ? (
+                   <div className="bg-green-50 border border-green-200 rounded-2xl p-6 text-center">
+                      <p className="text-green-600 font-bold mb-1">✅ คุณจับฉลากแล้ว</p>
+                      <p className="text-2xl font-bold text-gray-800">{myDrawResult.name}</p>
+                      <button onClick={() => setAppStep('result')} className="text-green-600 text-sm font-bold underline mt-3">ดูข้อมูลเพื่อน</button>
+                   </div>
+                ) : (
+                   <div className="py-6 text-center">
+                      {participants.length < 2 ? (
+                         <p className="text-gray-400 italic">รอเพื่อนแป๊บนึงนะ... (ต้องมี 2 คนขึ้นไป)</p>
+                      ) : (
+                         <button onClick={handleDraw} disabled={isDrawing} className={`w-40 h-40 rounded-full mx-auto shadow-2xl flex flex-col items-center justify-center gap-2 transition-all transform active:scale-95 ${isDrawing ? 'bg-gray-200 cursor-not-allowed' : 'bg-gradient-to-br from-red-500 to-red-600 hover:scale-105'}`}>
+                            {isDrawing ? <span className="text-4xl animate-spin">🎲</span> : <span className="text-5xl animate-bounce">🎁</span>}
+                            <span className={`font-bold ${isDrawing ? 'text-gray-400' : 'text-white'}`}>{isDrawing ? drawnResult?.name : 'จับเลย!'}</span>
+                         </button>
+                      )}
+                   </div>
+                )}
+                
+                {!isDrawing && !hasAlreadyDrawn && (
+                  <button onClick={() => setShowEditProfileModal(true)} className="w-full text-center text-gray-400 text-sm hover:text-gray-600 hover:underline">✏️ แก้ไขข้อมูลส่วนตัว</button>
+                )}
+                {/* Always allow edit even if drawn */}
+                {hasAlreadyDrawn && (
+                  <button onClick={() => setShowEditProfileModal(true)} className="w-full text-center text-gray-400 text-sm hover:text-gray-600 mt-2 hover:underline">✏️ อัปเดตข้อมูลให้เพื่อน</button>
+                )}
+              </div>
+            )}
+
+            {/* --- STEP 6: SECRET RESULT --- */}
+            {appStep === 'result' && myDrawResult && (
+              <div className="text-center py-6 space-y-6">
+                <div className="relative inline-block">
+                   <div className="absolute -top-4 -left-4 text-3xl animate-bounce" style={{animationDelay: '0.2s'}}>🎄</div>
+                   <div className="absolute -top-4 -right-4 text-3xl animate-bounce" style={{animationDelay: '0.7s'}}>⭐</div>
+                   <div className="bg-red-500 text-white p-8 rounded-[2rem] shadow-xl rotate-1">
+                      <p className="text-red-100 text-xs font-bold uppercase tracking-wider mb-2">Secret Mission</p>
+                      <h2 className="text-4xl font-extrabold">{myDrawResult.name}</h2>
+                   </div>
+                </div>
+
+                <div className="bg-gray-50 rounded-2xl p-5 text-left space-y-4 border border-gray-100">
+                   <div className="flex justify-between items-center text-sm font-bold border-b border-gray-200 pb-2">
+                      <span className="text-gray-500">💰 งบของขวัญ</span>
+                      <span className="text-green-600">{budgetMin}-{budgetMax}฿</span>
+                   </div>
+                   {eventDate && (
+                      <div className="flex justify-between items-center text-sm font-bold border-b border-gray-200 pb-2">
+                         <span className="text-gray-500">📅 วันนัดหมาย</span>
+                         <span className="text-red-500">{formatDate(eventDate)}</span>
+                      </div>
+                   )}
+                   <div>
+                      <p className="text-xs text-gray-400 font-bold uppercase mb-1">🎁 สิ่งที่อยากได้</p>
+                      <p className="text-gray-800 font-medium">{myDrawResult.wishlist || '-'}</p>
+                   </div>
+                   {myDrawResult.hobby && (
+                      <div>
+                         <p className="text-xs text-gray-400 font-bold uppercase mb-1">🎨 งานอดิเรก</p>
+                         <p className="text-gray-800 font-medium">{myDrawResult.hobby}</p>
+                      </div>
+                   )}
+                   {myDrawResult.message_to_santa && (
+                      <div className="bg-yellow-50 p-3 rounded-xl border border-yellow-100 italic text-gray-600 text-sm">
+                         " {myDrawResult.message_to_santa} "
+                      </div>
+                   )}
+                </div>
+
+                <div className="pt-4">
+                   <p className="text-gray-300 text-xs mb-4">🤫 จุ๊ๆ อย่าบอกใครนะ</p>
+                   <button onClick={() => setAppStep('draw')} className="w-full bg-gray-100 hover:bg-gray-200 text-gray-600 font-bold py-3 rounded-xl transition-colors">← กลับหน้าหลัก</button>
+                </div>
+              </div>
+            )}
+
+          </div>
+          
+        </div>
+
+        {/* Floating Footer */}
+        <div className="fixed bottom-4 left-0 right-0 flex justify-center z-20 pointer-events-none">
+           <div className="bg-white/90 backdrop-blur-md px-6 py-2 rounded-full shadow-lg border border-white/50 pointer-events-auto">
+             <p className="text-red-800/80 text-xs font-bold">Made with ❤️ for Christmas 🎄</p>
+           </div>
+        </div>
+
+      </div>
+    </>
+  );
+}
