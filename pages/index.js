@@ -111,6 +111,9 @@ export default function Home() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
   const [notification, setNotification] = useState(null);
+  
+  // Lobby states
+  const [lobbyParticipants, setLobbyParticipants] = useState([]);
 
   // Generate random group ID
   const generateGroupId = () => {
@@ -120,6 +123,81 @@ export default function Home() {
       result += chars.charAt(Math.floor(Math.random() * chars.length));
     }
     return result;
+  };
+
+  // Fetch lobby participants
+  const fetchLobbyParticipants = useCallback(async () => {
+    if (!groupId) return;
+    
+    try {
+      const { data, error: fetchError } = await supabase
+        .from('participants')
+        .select('*')
+        .eq('group_id', groupId)
+        .order('created_at', { ascending: true });
+
+      if (fetchError) throw fetchError;
+      setLobbyParticipants(data || []);
+    } catch (err) {
+      console.error('Fetch lobby error:', err);
+    }
+  }, [groupId]);
+
+  // Real-time subscription for lobby
+  useEffect(() => {
+    if (!groupId || appStep !== 'lobby') return;
+    
+    fetchLobbyParticipants();
+    
+    const channel = supabase
+      .channel('lobby-channel')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'participants',
+          filter: `group_id=eq.${groupId}`
+        },
+        () => {
+          fetchLobbyParticipants();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [groupId, appStep, fetchLobbyParticipants]);
+
+  // Add other member (without wishlist/hobby - they fill it later)
+  const handleAddOtherMember = async (name) => {
+    if (!name.trim()) return;
+    
+    try {
+      // Check if name already exists
+      const existing = lobbyParticipants.find(
+        p => p.name.toLowerCase() === name.toLowerCase()
+      );
+      
+      if (existing) {
+        setError('ชื่อนี้มีในกลุ่มแล้ว');
+        return;
+      }
+      
+      const { error: insertError } = await supabase
+        .from('participants')
+        .insert({
+          group_id: groupId,
+          name: name.trim(),
+          has_drawn: false
+        });
+
+      if (insertError) throw insertError;
+      setNotification(`เพิ่ม ${name} แล้ว!`);
+    } catch (err) {
+      setError('เพิ่มไม่สำเร็จ: ' + err.message);
+    }
   };
 
   // Create new group
@@ -567,55 +645,133 @@ export default function Home() {
 
             {/* Lobby - Enter name */}
             {appStep === 'lobby' && (
-              <div className="bg-white/95 backdrop-blur rounded-3xl p-8 shadow-2xl">
-                <div className="text-center mb-6">
-                  <div className="inline-block bg-red-100 text-red-800 px-4 py-2 rounded-full font-bold mb-4">
-                    รหัสกลุ่ม: {groupId}
+              <div className="space-y-6">
+                {/* Group ID Card - Prominent */}
+                <div className="bg-gradient-to-r from-red-500 to-red-600 rounded-3xl p-6 shadow-2xl text-center text-white">
+                  <p className="text-red-100 mb-2">📢 แชร์รหัสนี้ให้เพื่อน!</p>
+                  <div className="flex items-center justify-center gap-3">
+                    <span className="text-4xl font-bold tracking-widest">{groupId}</span>
+                    <button
+                      onClick={() => {
+                        navigator.clipboard.writeText(groupId);
+                        setNotification('คัดลอกรหัสแล้ว! 📋');
+                      }}
+                      className="bg-white/20 hover:bg-white/30 p-3 rounded-xl transition-all"
+                      title="คัดลอก"
+                    >
+                      📋
+                    </button>
                   </div>
-                  <h2 className="text-2xl font-bold text-gray-800">{groupName}</h2>
-                  <p className="text-green-600 font-bold mt-2">💰 งบ {budgetMin} - {budgetMax} บาท</p>
+                  <p className="text-red-100 text-sm mt-3">หรือส่งลิงก์: secret-santa-tau-green.vercel.app</p>
                 </div>
-                
-                <div className="space-y-4">
-                  <div>
-                    <label className="block text-gray-700 font-bold mb-2">ชื่อของคุณ *</label>
+
+                {/* Group Info */}
+                <div className="bg-white/95 backdrop-blur rounded-3xl p-6 shadow-2xl">
+                  <h2 className="text-2xl font-bold text-gray-800 text-center">{groupName}</h2>
+                  <p className="text-green-600 font-bold text-center mt-1">💰 งบ {budgetMin} - {budgetMax} บาท</p>
+                  {eventDate && (
+                    <p className="text-gray-500 text-center mt-1">📅 วันแลกของขวัญ: {new Date(eventDate).toLocaleDateString('th-TH')}</p>
+                  )}
+                </div>
+
+                {/* Add yourself */}
+                <div className="bg-white/95 backdrop-blur rounded-3xl p-6 shadow-2xl">
+                  <h3 className="font-bold text-gray-800 mb-4">👤 ข้อมูลของคุณ</h3>
+                  <div className="space-y-3">
                     <input
                       type="text"
                       value={myName}
                       onChange={(e) => setMyName(e.target.value)}
-                      placeholder="ใส่ชื่อเล่นของคุณ"
+                      placeholder="ชื่อของคุณ *"
                       className="w-full px-4 py-3 rounded-xl border-2 border-gray-200 focus:border-green-500 focus:outline-none"
                     />
-                  </div>
-                  
-                  <div>
-                    <label className="block text-gray-700 font-bold mb-2">🎁 Wishlist (ไม่บังคับ)</label>
                     <textarea
                       value={wishlist}
                       onChange={(e) => setWishlist(e.target.value)}
-                      placeholder="อยากได้อะไร? เช่น หนังสือ, ขนม, ของใช้..."
+                      placeholder="🎁 Wishlist (ไม่บังคับ) - อยากได้อะไร?"
                       rows={2}
                       className="w-full px-4 py-3 rounded-xl border-2 border-gray-200 focus:border-green-500 focus:outline-none"
                     />
-                  </div>
-                  
-                  <div>
-                    <label className="block text-gray-700 font-bold mb-2">🎨 งานอดิเรก (ไม่บังคับ)</label>
                     <input
                       type="text"
                       value={hobby}
                       onChange={(e) => setHobby(e.target.value)}
-                      placeholder="เช่น อ่านหนังสือ, เล่นเกม, ทำอาหาร"
+                      placeholder="🎨 งานอดิเรก (ไม่บังคับ)"
                       className="w-full px-4 py-3 rounded-xl border-2 border-gray-200 focus:border-green-500 focus:outline-none"
                     />
                   </div>
+                </div>
+
+                {/* Add other members */}
+                <div className="bg-white/95 backdrop-blur rounded-3xl p-6 shadow-2xl">
+                  <h3 className="font-bold text-gray-800 mb-4">👥 เพิ่มสมาชิกคนอื่น (ไม่บังคับ)</h3>
+                  <div className="flex gap-2 mb-4">
+                    <input
+                      type="text"
+                      id="newMemberInput"
+                      placeholder="ชื่อสมาชิก"
+                      className="flex-1 px-4 py-3 rounded-xl border-2 border-gray-200 focus:border-blue-500 focus:outline-none"
+                      onKeyPress={(e) => {
+                        if (e.key === 'Enter') {
+                          const input = document.getElementById('newMemberInput');
+                          if (input.value.trim()) {
+                            handleAddOtherMember(input.value.trim());
+                            input.value = '';
+                          }
+                        }
+                      }}
+                    />
+                    <button
+                      onClick={() => {
+                        const input = document.getElementById('newMemberInput');
+                        if (input.value.trim()) {
+                          handleAddOtherMember(input.value.trim());
+                          input.value = '';
+                        }
+                      }}
+                      className="bg-blue-500 hover:bg-blue-600 text-white font-bold px-6 rounded-xl transition-all"
+                    >
+                      + เพิ่ม
+                    </button>
+                  </div>
+                  <p className="text-gray-400 text-sm">💡 เพิ่มชื่อเพื่อนได้เลย พวกเขาจะมากรอก Wishlist เองทีหลังได้</p>
+                </div>
+
+                {/* Current members list */}
+                <div className="bg-white/95 backdrop-blur rounded-3xl p-6 shadow-2xl">
+                  <div className="flex justify-between items-center mb-4">
+                    <h3 className="font-bold text-gray-800">🏘️ สมาชิกในกลุ่ม ({lobbyParticipants.length} คน)</h3>
+                    <button
+                      onClick={fetchLobbyParticipants}
+                      className="text-blue-500 hover:text-blue-700 text-sm"
+                    >
+                      🔄 รีเฟรช
+                    </button>
+                  </div>
                   
+                  {lobbyParticipants.length === 0 ? (
+                    <p className="text-gray-400 text-center py-4">ยังไม่มีสมาชิก</p>
+                  ) : (
+                    <div className="flex flex-wrap gap-2">
+                      {lobbyParticipants.map((p, i) => (
+                        <div key={p.id} className="bg-green-100 text-green-800 px-4 py-2 rounded-full flex items-center gap-2">
+                          <span>🏠</span>
+                          <span>{p.name}</span>
+                          {p.wishlist && <span title="มี Wishlist">🎁</span>}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Action buttons */}
+                <div className="space-y-3">
                   <button
                     onClick={handleJoinAsParticipant}
-                    disabled={isLoading}
-                    className="w-full bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 text-white font-bold py-4 px-8 rounded-2xl transition-all transform hover:scale-105 shadow-lg disabled:opacity-50"
+                    disabled={isLoading || !myName.trim()}
+                    className="w-full bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 text-white font-bold py-4 px-8 rounded-2xl transition-all transform hover:scale-105 shadow-lg disabled:opacity-50 disabled:hover:scale-100"
                   >
-                    {isLoading ? '⏳ กำลังเข้าร่วม...' : '🏠 เข้าหมู่บ้าน'}
+                    {isLoading ? '⏳ กำลังเข้าร่วม...' : '🎄 เข้าร่วม & เริ่มจับฉลาก!'}
                   </button>
                   
                   <button
