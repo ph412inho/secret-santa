@@ -8,9 +8,19 @@ const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBh
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
+// --- CSS STYLES & ANIMATIONS ---
+const styles = `
+  @keyframes float-slow {
+    0%, 100% { transform: translateY(0px); }
+    50% { transform: translateY(-15px); }
+  }
+  .animate-float-slow {
+    animation: float-slow 4s ease-in-out infinite;
+  }
+`;
+
 // --- COMPONENTS ---
 
-// 1. Loading Screen (Updated: Smooth exit)
 const LoadingScreen = ({ onComplete }) => {
   const [progress, setProgress] = useState(0);
   const [isFinished, setIsFinished] = useState(false);
@@ -18,10 +28,10 @@ const LoadingScreen = ({ onComplete }) => {
   useEffect(() => {
     const timer = setInterval(() => {
       setProgress(prev => {
-        if (prev >= 120) { // ให้วิ่งเลย 100 ไปหน่อย
+        if (prev >= 120) {
           clearInterval(timer);
           setIsFinished(true);
-          setTimeout(onComplete, 500); // รอ animation จบ
+          setTimeout(onComplete, 500);
           return 120;
         }
         return prev + 2;
@@ -32,15 +42,12 @@ const LoadingScreen = ({ onComplete }) => {
 
   return (
     <div className={`fixed inset-0 bg-gradient-to-b from-indigo-900 via-indigo-800 to-indigo-900 z-50 flex flex-col items-center justify-center transition-opacity duration-500 ${isFinished ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}>
-      {/* Stars */}
       <div className="absolute inset-0 overflow-hidden">
         {[...Array(20)].map((_, i) => (
           <div key={i} className="absolute w-1 h-1 bg-white rounded-full animate-pulse"
             style={{ left: `${Math.random() * 100}%`, top: `${Math.random() * 60}%`, animationDelay: `${Math.random() * 2}s` }} />
         ))}
       </div>
-      
-      {/* Sleigh Animation */}
       <div className="relative mb-8 w-full max-w-xs h-16">
         <div className="absolute top-0 transition-all duration-100 ease-linear"
           style={{ left: `${progress - 20}%` }}> 
@@ -49,15 +56,13 @@ const LoadingScreen = ({ onComplete }) => {
            </div>
         </div>
       </div>
-      
       <p className="text-white/80 mt-12 text-sm font-medium animate-pulse">กำลังเดินทางไปบ้านซานต้า...</p>
     </div>
   );
 };
 
-// 2. Santa Icon (Updated: Added "จับแล้ว!" text)
 const SantaIcon = ({ name, hasDrawn, isMe }) => (
-  <div className={`flex flex-col items-center gap-1 p-2 rounded-xl transition-all ${isMe ? 'bg-red-50 ring-2 ring-red-200' : ''}`}>
+  <div className={`flex flex-col items-center gap-1 p-2 rounded-xl transition-all ${isMe ? 'bg-red-50 ring-2 ring-red-200 scale-105' : ''}`}>
     <div className={`text-3xl relative ${hasDrawn ? '' : 'grayscale opacity-50'}`}>
       🎅
       {hasDrawn && (
@@ -77,70 +82,78 @@ const SantaIcon = ({ name, hasDrawn, isMe }) => (
   </div>
 );
 
-// 3. Recovery Modal (Updated: Label names)
+// Recovery Modal with Dropdown List
 const RecoveryModal = ({ isOpen, onClose, onRecover }) => {
-  const [creatorName, setCreatorName] = useState('');
-  const [friendName, setFriendName] = useState('');
-  const [groupNameSearch, setGroupNameSearch] = useState('');
+  const [searchTerm, setSearchTerm] = useState('');
+  const [searchResults, setSearchResults] = useState([]);
   const [isSearching, setIsSearching] = useState(false);
-  const [result, setResult] = useState(null);
-  const [error, setError] = useState('');
+  const [selectedGroup, setSelectedGroup] = useState(null);
 
-  const handleSearch = async () => {
-    if (!groupNameSearch.trim() || !creatorName.trim() || !friendName.trim()) {
-      setError('กรอกให้ครบทุกช่องนะ'); return;
-    }
-    setIsSearching(true); setError(''); setResult(null);
-    try {
-      const { data: groups } = await supabase.from('groups').select('*').ilike('name', `%${groupNameSearch.trim()}%`);
-      if (!groups || groups.length === 0) { setError('ไม่พบกลุ่มชื่อนี้'); return; }
-      
-      for (const group of groups) {
-        const { data: participants } = await supabase.from('participants').select('name').eq('group_id', group.id);
-        const names = participants?.map(p => p.name.toLowerCase()) || [];
-        // Check if both names exist in the group
-        const hasCreator = names.some(n => n.includes(creatorName.toLowerCase()));
-        const hasFriend = names.some(n => n.includes(friendName.toLowerCase()));
-        if (hasCreator && hasFriend) { setResult(group); return; }
-      }
-      setError('ชื่อสมาชิกไม่ตรงกับกลุ่มที่เจอ');
-    } catch (err) { setError('เกิดข้อผิดพลาด'); } finally { setIsSearching(false); }
-  };
+  // Search groups as user types
+  useEffect(() => {
+    const delayDebounce = setTimeout(async () => {
+        if (searchTerm.length < 2) {
+            setSearchResults([]);
+            return;
+        }
+        setIsSearching(true);
+        const { data } = await supabase.from('groups').select('*').ilike('name', `%${searchTerm}%`).limit(5);
+        setSearchResults(data || []);
+        setIsSearching(false);
+    }, 500);
+    return () => clearTimeout(delayDebounce);
+  }, [searchTerm]);
 
   if (!isOpen) return null;
+
   return (
     <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-fade-in">
       <div className="bg-white rounded-3xl p-6 max-w-sm w-full shadow-2xl relative">
         <button onClick={onClose} className="absolute top-4 right-4 text-gray-300 hover:text-gray-500">✕</button>
-        <h3 className="text-lg font-bold text-gray-800 mb-4 text-center">🔑 กู้คืนรหัสกลุ่ม</h3>
+        <h3 className="text-lg font-bold text-gray-800 mb-4 text-center">🔍 ค้นหากลุ่ม</h3>
         
-        <div className="space-y-3">
-          <div>
-             <label className="block text-xs font-bold text-gray-500 mb-1">ชื่อกลุ่ม</label>
-             <input type="text" value={groupNameSearch} onChange={(e) => setGroupNameSearch(e.target.value)} className="w-full bg-gray-50 border border-gray-200 rounded-xl px-3 py-2 text-sm focus:border-red-400 focus:outline-none" placeholder="เช่น แก๊งออฟฟิศ" />
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-             <div>
-                <label className="block text-xs font-bold text-gray-500 mb-1">ชื่อคนสร้าง (หรือคุณ)</label>
-                <input type="text" value={creatorName} onChange={(e) => setCreatorName(e.target.value)} className="w-full bg-gray-50 border border-gray-200 rounded-xl px-3 py-2 text-sm focus:border-red-400 focus:outline-none" placeholder="ชื่อ..." />
-             </div>
-             <div>
-                <label className="block text-xs font-bold text-gray-500 mb-1">ชื่อเพื่อน 1 คน</label>
-                <input type="text" value={friendName} onChange={(e) => setFriendName(e.target.value)} className="w-full bg-gray-50 border border-gray-200 rounded-xl px-3 py-2 text-sm focus:border-red-400 focus:outline-none" placeholder="ชื่อ..." />
-             </div>
+        <div className="space-y-4">
+          <div className="relative">
+             <label className="block text-xs font-bold text-gray-500 mb-1">พิมพ์ชื่อกลุ่มเพื่อค้นหา</label>
+             <input 
+                type="text" 
+                value={searchTerm} 
+                onChange={(e) => setSearchTerm(e.target.value)} 
+                className="w-full bg-gray-50 border border-gray-200 rounded-xl px-3 py-3 text-sm focus:border-red-400 focus:outline-none" 
+                placeholder="เช่น แก๊งออฟฟิศ..." 
+             />
+             {isSearching && <div className="absolute right-3 top-9 text-xs text-gray-400">⏳</div>}
+             
+             {/* Dropdown Results */}
+             {searchResults.length > 0 && (
+                <div className="absolute z-10 w-full mt-1 bg-white border border-gray-100 rounded-xl shadow-xl max-h-40 overflow-y-auto">
+                    {searchResults.map(group => (
+                        <div 
+                            key={group.id}
+                            onClick={() => { setSelectedGroup(group); setSearchResults([]); setSearchTerm(group.name); }}
+                            className="px-4 py-3 hover:bg-red-50 cursor-pointer border-b border-gray-50 last:border-0"
+                        >
+                            <p className="font-bold text-gray-700 text-sm">{group.name}</p>
+                            <p className="text-xs text-gray-400">Code: {group.id}</p>
+                        </div>
+                    ))}
+                </div>
+             )}
           </div>
 
-          {error && <p className="text-red-500 text-xs text-center bg-red-50 py-1 rounded-lg">{error}</p>}
-          {result ? (
-            <div className="bg-green-50 border border-green-200 rounded-xl p-4 text-center mt-2">
-              <p className="text-green-700 font-bold mb-1">เจอแล้ว!</p>
-              <p className="text-3xl font-mono font-bold text-gray-800 tracking-widest my-2">{result.id}</p>
-              <button onClick={() => { onRecover(result); }} className="w-full bg-green-500 text-white font-bold py-2 rounded-lg text-sm shadow-md hover:bg-green-600">ไปที่กลุ่มเลย →</button>
+          {selectedGroup ? (
+            <div className="bg-green-50 border border-green-200 rounded-xl p-4 text-center animate-fade-in-up">
+              <p className="text-green-700 font-bold mb-1">เลือกกลุ่มนี้?</p>
+              <p className="text-xl font-bold text-gray-800">{selectedGroup.name}</p>
+              <p className="text-sm text-gray-500 mb-3">รหัส: {selectedGroup.id}</p>
+              <button onClick={() => onRecover(selectedGroup)} className="w-full bg-green-500 text-white font-bold py-2 rounded-lg text-sm shadow-md hover:bg-green-600 transition-colors">
+                 ไปที่กลุ่มเลย →
+              </button>
             </div>
           ) : (
-            <button onClick={handleSearch} disabled={isSearching} className="w-full bg-red-500 hover:bg-red-600 text-white font-bold py-3 rounded-xl transition-all shadow-lg shadow-red-200 mt-2">
-              {isSearching ? '⏳ กำลังค้นหา...' : '🔍 ค้นหา'}
-            </button>
+            searchResults.length === 0 && searchTerm.length > 2 && !isSearching && (
+                <p className="text-center text-gray-400 text-sm italic">ไม่พบกลุ่มชื่อนี้</p>
+            )
           )}
         </div>
       </div>
@@ -148,7 +161,6 @@ const RecoveryModal = ({ isOpen, onClose, onRecover }) => {
   );
 };
 
-// 4. Budget Stepper (Updated: Better Layout)
 const BudgetStepper = ({ value, onChange, min, max }) => (
   <div className="flex flex-col items-center">
     <div className="bg-white border-2 border-gray-100 rounded-2xl px-2 py-2 flex items-center gap-3 shadow-sm">
@@ -178,7 +190,8 @@ export default function Home() {
   const [groupName, setGroupName] = useState('');
   const [budgetMin, setBudgetMin] = useState(300);
   const [budgetMax, setBudgetMax] = useState(500);
-  const [eventDate, setEventDate] = useState(''); // New: Date State
+  const [eventDate, setEventDate] = useState('');
+  const [gameStarted, setGameStarted] = useState(false); // To disable add member
   
   const [myName, setMyName] = useState('');
   const [myId, setMyId] = useState(null);
@@ -218,6 +231,13 @@ export default function Home() {
     setLobbyParticipants(data || []);
   }, [groupId]);
 
+  const checkGameStatus = useCallback(async () => {
+     if (!groupId) return;
+     // Check if any draws exist for this group
+     const { count } = await supabase.from('draws').select('*', { count: 'exact', head: true }).eq('group_id', groupId);
+     setGameStarted(count > 0);
+  }, [groupId]);
+
   const fetchGroupDetails = useCallback(async () => {
     if (!groupId) return;
     const { data } = await supabase.from('groups').select('*').eq('id', groupId).single();
@@ -231,13 +251,15 @@ export default function Home() {
   useEffect(() => {
     if (!groupId || appStep !== 'lobby') return;
     fetchLobbyParticipants();
-    fetchGroupDetails(); // Fetch date when entering lobby
+    fetchGroupDetails();
+    checkGameStatus();
+    
     const channel = supabase.channel('lobby-channel')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'participants', filter: `group_id=eq.${groupId}` }, fetchLobbyParticipants)
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'groups', filter: `id=eq.${groupId}` }, fetchGroupDetails) // Listen for date/budget updates
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'draws', filter: `group_id=eq.${groupId}` }, checkGameStatus) // Listen for game start
       .subscribe();
     return () => supabase.removeChannel(channel);
-  }, [groupId, appStep, fetchLobbyParticipants, fetchGroupDetails]);
+  }, [groupId, appStep, fetchLobbyParticipants, fetchGroupDetails, checkGameStatus]);
 
   // --- ACTIONS ---
 
@@ -251,7 +273,7 @@ export default function Home() {
         name: groupName.trim(),
         budget_min: budgetMin,
         budget_max: budgetMax,
-        event_date: eventDate || null // Save Date
+        event_date: eventDate || null
       }).single();
 
       if (createError) throw createError;
@@ -262,10 +284,8 @@ export default function Home() {
   };
 
   const handleUpdateGroupDate = async (newDate) => {
-    setEventDate(newDate); // Optimistic update
-    try {
-        await supabase.from('groups').update({ event_date: newDate }).eq('id', groupId);
-    } catch (err) { setError('อัปเดตวันที่ไม่สำเร็จ'); }
+    setEventDate(newDate);
+    try { await supabase.from('groups').update({ event_date: newDate }).eq('id', groupId); } catch (err) {}
   };
 
   const handleJoinGroup = async () => {
@@ -289,29 +309,55 @@ export default function Home() {
     if (lobbyParticipants.some(p => p.name.toLowerCase() === trimmedName.toLowerCase())) {
         setError(`"${trimmedName}" มีในกลุ่มแล้ว!`); return;
     }
-    await supabase.from('participants').insert({ group_id: groupId, name: trimmedName, has_drawn: false });
+    
+    // Optimistic Update: Add to list immediately
+    const tempId = Math.random().toString();
+    setLobbyParticipants(prev => [...prev, { id: tempId, name: trimmedName, wishlist: null }]);
+    
+    const { error } = await supabase.from('participants').insert({ group_id: groupId, name: trimmedName, has_drawn: false });
+    if(error) {
+        // Revert if failed
+        fetchLobbyParticipants();
+        setError('เพิ่มไม่ได้: ' + error.message);
+    }
   };
 
   const handleJoinAsParticipant = async () => {
     if (!myName.trim()) { setError('ใส่ชื่อก่อนนะ!'); return; }
     try {
       setIsLoading(true);
-      const existing = lobbyParticipants.find(p => p.name.toLowerCase() === myName.trim().toLowerCase());
-      if (existing) {
-        setMyId(existing.id);
-        setWishlist(existing.wishlist || '');
-        setHobby(existing.hobby || '');
-        setMessageToSanta(existing.message_to_santa || '');
-        // Check if already drawn
-        const { data: drawData } = await supabase.from('draws').select('*, receiver:receiver_id(*)').eq('drawer_id', existing.id).single();
-        if (drawData) setMyDrawResult(drawData.receiver);
+      const trimmedName = myName.trim();
+      
+      // 1. Check if user already exists in DB (Don't rely just on local state)
+      const { data: existingUser } = await supabase.from('participants').select('*').eq('group_id', groupId).ilike('name', trimmedName).single();
+      
+      let currentUserId = null;
+
+      if (existingUser) {
+        // --- OLD USER LOGIN ---
+        currentUserId = existingUser.id;
+        setMyId(existingUser.id);
+        setWishlist(existingUser.wishlist || '');
+        setHobby(existingUser.hobby || '');
+        setMessageToSanta(existingUser.message_to_santa || '');
+        
+        // Check Draw Result IMMEDIATELY
+        const { data: drawData } = await supabase.from('draws').select('*, receiver:receiver_id(*)').eq('drawer_id', existingUser.id).single();
+        if (drawData) {
+            setMyDrawResult(drawData.receiver);
+        }
       } else {
-        const { data } = await supabase.from('participants').insert({
-          group_id: groupId, name: myName.trim(), wishlist: wishlist.trim() || null, hobby: hobby.trim() || null, message_to_santa: messageToSanta.trim() || null, has_drawn: false
+        // --- NEW USER JOIN ---
+        const { data, error } = await supabase.from('participants').insert({
+          group_id: groupId, name: trimmedName, wishlist: wishlist.trim() || null, hobby: hobby.trim() || null, message_to_santa: messageToSanta.trim() || null, has_drawn: false
         }).select().single();
+        if(error) throw error;
+        currentUserId = data.id;
         setMyId(data.id);
       }
+      
       setAppStep('draw');
+
     } catch (err) { setError('เข้ากลุ่มไม่ได้: ' + err.message); } finally { setIsLoading(false); }
   };
 
@@ -378,10 +424,11 @@ export default function Home() {
       <Head>
         <title>Secret Santa 🎅</title>
         <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+        <style dangerouslySetInnerHTML={{__html: styles}} />
         <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800&display=swap" rel="stylesheet" />
       </Head>
 
-      <div className="min-h-screen bg-gradient-to-b from-red-600 via-red-500 to-red-700 font-['Nunito'] relative selection:bg-green-200">
+      <div className="min-h-screen bg-gradient-to-b from-red-600 via-red-500 to-red-700 font-['Nunito'] relative selection:bg-green-200 pb-16">
         
         {/* Snow & Modal */}
         <div className="fixed inset-0 pointer-events-none">
@@ -410,7 +457,7 @@ export default function Home() {
           )}
 
           {/* MAIN CARD */}
-          <div className="bg-white rounded-3xl p-6 shadow-2xl relative">
+          <div className="bg-white rounded-3xl p-6 shadow-2xl relative animate-float-slow">
 
             {/* --- STEP 1: LANDING --- */}
             {appStep === 'landing' && (
@@ -440,7 +487,6 @@ export default function Home() {
                    <input type="text" value={groupName} onChange={e => setGroupName(e.target.value)} placeholder="เช่น แก๊งออฟฟิศ" className="w-full bg-gray-50 border-2 border-gray-200 rounded-xl px-4 py-3 text-gray-700 font-bold focus:border-green-400 focus:outline-none" autoFocus />
                 </div>
 
-                {/* NEW: Date Input */}
                 <div>
                    <label className="block text-sm font-bold text-gray-500 mb-2">📅 วันที่แลกของ (ไม่ระบุก็ได้)</label>
                    <input type="date" value={eventDate} onChange={e => setEventDate(e.target.value)} className="w-full bg-gray-50 border-2 border-gray-200 rounded-xl px-4 py-3 text-gray-700 focus:border-green-400 focus:outline-none" />
@@ -495,7 +541,6 @@ export default function Home() {
                    <h2 className="text-xl font-bold text-gray-800">{groupName}</h2>
                    <div className="flex items-center justify-center gap-3 mt-1 text-sm font-bold">
                       <span className="text-green-600 bg-green-50 px-2 py-1 rounded-lg">💰 {budgetMin}-{budgetMax}฿</span>
-                      {/* Date Picker / Display in Lobby */}
                       <div className="relative group">
                           <input type="date" value={eventDate} onChange={(e) => handleUpdateGroupDate(e.target.value)} className="absolute inset-0 opacity-0 cursor-pointer" />
                           <span className={`px-2 py-1 rounded-lg flex items-center gap-1 ${eventDate ? 'text-red-600 bg-red-50' : 'text-gray-400 bg-gray-100 border border-dashed border-gray-300'}`}>
@@ -529,10 +574,13 @@ export default function Home() {
                 {/* Members List */}
                 <div className="space-y-2">
                    <p className="text-sm font-bold text-gray-500 pl-1">👥 สมาชิก ({lobbyParticipants.length} คน)</p>
-                   <div className="flex gap-2">
-                      <input id="addMemberInput" type="text" placeholder="พิมพ์ชื่อเพื่อน..." className="flex-1 bg-white border border-gray-200 rounded-xl px-4 py-3 text-sm focus:border-green-400 focus:outline-none" 
+                   
+                   {/* Disable add if game started */}
+                   <div className="flex gap-2 relative">
+                      {gameStarted && <div className="absolute inset-0 bg-white/50 z-10 flex items-center justify-center text-xs font-bold text-red-500">🎮 เริ่มเกมแล้ว ห้ามเพิ่มคน</div>}
+                      <input id="addMemberInput" type="text" placeholder="พิมพ์ชื่อเพื่อน..." disabled={gameStarted} className="flex-1 bg-white border border-gray-200 rounded-xl px-4 py-3 text-sm focus:border-green-400 focus:outline-none disabled:opacity-50" 
                         onKeyDown={(e) => { if (e.key === 'Enter' && e.target.value.trim()) { handleAddOtherMember(e.target.value); e.target.value=''; } }} />
-                      <button onClick={() => { const el = document.getElementById('addMemberInput'); if(el.value.trim()) { handleAddOtherMember(el.value); el.value=''; } }} className="bg-green-100 text-green-600 font-bold px-4 rounded-xl hover:bg-green-200">+</button>
+                      <button disabled={gameStarted} onClick={() => { const el = document.getElementById('addMemberInput'); if(el.value.trim()) { handleAddOtherMember(el.value); el.value=''; } }} className="bg-green-100 text-green-600 font-bold px-4 rounded-xl hover:bg-green-200 disabled:opacity-50 disabled:cursor-not-allowed">+</button>
                    </div>
                    
                    <div className="flex flex-wrap gap-2 pt-2">
@@ -547,7 +595,7 @@ export default function Home() {
 
                 <div className="pt-4 border-t border-gray-100">
                    <button onClick={handleJoinAsParticipant} disabled={isLoading || !myName.trim()} className="w-full bg-gradient-to-r from-red-500 to-red-600 text-white font-bold py-4 rounded-2xl shadow-lg active:scale-95 transition-transform disabled:opacity-50">
-                      {isLoading ? '⏳ ...' : '🎅 พร้อมจับฉลาก!'}
+                      {isLoading ? '⏳ ...' : '🎅 ไปต่อเลย!'}
                    </button>
                 </div>
               </div>
@@ -657,8 +705,15 @@ export default function Home() {
 
           </div>
           
-          <p className="text-center text-red-800/40 text-xs mt-6 font-bold">Made with ❤️ for Christmas</p>
         </div>
+
+        {/* Floating Footer */}
+        <div className="fixed bottom-4 left-0 right-0 flex justify-center z-20">
+           <div className="bg-white/90 backdrop-blur-sm px-4 py-2 rounded-full shadow-lg border border-white/50">
+             <p className="text-red-800/60 text-xs font-bold">Made with ❤️ for Christmas 🎄</p>
+           </div>
+        </div>
+
       </div>
     </>
   );
