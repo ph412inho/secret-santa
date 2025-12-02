@@ -17,7 +17,6 @@ const styles = `
     transform: none !important;
     animation: none !important;
   }
-  /* Animation for Landing only */
   @keyframes float-slow {
     0%, 100% { transform: translateY(0px); }
     50% { transform: translateY(-15px); }
@@ -30,21 +29,21 @@ const styles = `
 // --- COMPONENTS ---
 
 const LoadingScreen = ({ onComplete }) => {
-  const [progress, setProgress] = useState(-20); // Start off-screen left
+  const [progress, setProgress] = useState(-10); // เริ่มใกล้ขึ้น ไม่ต้องไกลมาก
   const [isFinished, setIsFinished] = useState(false);
   
   useEffect(() => {
     const timer = setInterval(() => {
       setProgress(prev => {
-        if (prev >= 120) {
+        if (prev >= 110) { // วิ่งเลยไปนิดเดียวพอ
           clearInterval(timer);
           setIsFinished(true);
           setTimeout(onComplete, 500);
-          return 120;
+          return 110;
         }
-        return prev + 2; // Speed
+        return prev + 1.5; // ความเร็วกลางๆ
       });
-    }, 15);
+    }, 30); // ปรับเป็น 30ms ตามที่ขอ
     return () => clearInterval(timer);
   }, [onComplete]);
 
@@ -57,16 +56,12 @@ const LoadingScreen = ({ onComplete }) => {
         ))}
       </div>
       
-      {/* Container for Sleigh */}
-      <div className="relative mb-8 w-full h-20 overflow-hidden">
+      <div className="relative mb-8 w-full h-20 overflow-hidden max-w-sm">
         <div 
           className="absolute top-0 transition-all duration-75 ease-linear will-change-transform"
           style={{ left: `${progress}%` }}
         > 
-           {/* String: Santa -> Sleigh -> Reindeer (🎅🛷🦌🦌)
-              CSS: scaleX(-1) flips them to face RIGHT.
-              Visual Result: [Reindeer] [Sleigh] [Santa] ---> Moving Right
-           */}
+           {/* กลับด้าน Emoji ให้หันไปทางขวา (กวางนำหน้า) */}
            <div className="text-5xl whitespace-nowrap filter drop-shadow-lg flip-x">
              🎅🛷🦌🦌
            </div>
@@ -77,36 +72,36 @@ const LoadingScreen = ({ onComplete }) => {
   );
 };
 
-// Santa Icon Component (Used for Selection & Status)
-const SantaIcon = ({ name, hasDrawn, isMe, onClick, selectable = false }) => (
+// Santa Icon (เพิ่ม prop isSelected เพื่อทำ Highlight)
+const SantaIcon = ({ name, hasDrawn, isMe, isSelected, onClick, selectable = false }) => (
   <div 
     onClick={onClick}
     className={`
       flex flex-col items-center gap-1 p-2 rounded-xl transition-all relative
-      ${selectable ? 'cursor-pointer hover:bg-red-50 hover:scale-105 active:scale-95 bg-white border border-gray-100 shadow-sm' : ''}
-      ${isMe ? 'bg-red-50 ring-2 ring-red-200 scale-105' : ''}
+      ${selectable ? 'cursor-pointer border-2' : ''}
+      ${isSelected ? 'bg-red-50 border-red-500 scale-105 shadow-md' : 'border-transparent hover:bg-gray-50'}
+      ${isMe && !selectable ? 'bg-red-50 ring-2 ring-red-200 scale-105' : ''}
     `}
   >
     <div className="relative">
-      <div className={`text-4xl transition-all ${hasDrawn && !selectable ? '' : ''} ${!hasDrawn && !selectable ? 'grayscale opacity-70' : ''}`}>
+      <div className={`text-4xl transition-all ${!hasDrawn && !selectable && !isSelected ? 'grayscale opacity-70' : ''}`}>
         🎅
       </div>
-      {/* Checkmark for Status */}
-      {hasDrawn && !selectable && (
+      {/* Checkmark แสดงสถานะว่าคนนี้จับไปแล้ว */}
+      {hasDrawn && (
         <div className="absolute -bottom-1 -right-1 bg-white rounded-full w-5 h-5 flex items-center justify-center shadow-md border border-green-100">
            <span className="text-xs text-green-500 font-bold">✓</span>
         </div>
       )}
     </div>
     
-    <span className={`text-xs font-bold truncate max-w-[70px] ${hasDrawn ? 'text-gray-800' : 'text-gray-500'}`}>
+    <span className={`text-xs font-bold truncate max-w-[70px] ${isSelected ? 'text-red-600' : hasDrawn ? 'text-gray-800' : 'text-gray-500'}`}>
       {name}
     </span>
     
-    {/* Text Label for Status */}
-    {hasDrawn && !selectable && (
+    {hasDrawn && (
       <span className="text-[9px] text-green-600 bg-green-100 px-1.5 py-0.5 rounded-full font-bold shadow-sm mt-0.5">
-        จับแล้ว!
+        จับแล้ว
       </span>
     )}
   </div>
@@ -166,7 +161,6 @@ const EditProfileModal = ({ isOpen, onClose, initialData, onSave }) => {
     const [message, setMessage] = useState(initialData.message || '');
     const [isSaving, setIsSaving] = useState(false);
 
-    // Sync state when initialData changes
     useEffect(() => {
         setWishlist(initialData.wishlist || '');
         setHobby(initialData.hobby || '');
@@ -246,13 +240,16 @@ export default function Home() {
   const [isDrawing, setIsDrawing] = useState(false);
   const [showResultCard, setShowResultCard] = useState(false);
   
+  // Selection State
+  const [selectedIdentity, setSelectedIdentity] = useState(null); // For Lobby Selection
+
   // UI States
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
   const [notification, setNotification] = useState(null);
   const [showRecoveryModal, setShowRecoveryModal] = useState(false);
   const [showEditProfileModal, setShowEditProfileModal] = useState(false);
-  const [newMemberName, setNewMemberName] = useState(''); // Only for adding NEW members
+  const [newMemberName, setNewMemberName] = useState('');
 
   // --- UTILS & EFFECTS ---
   useEffect(() => { if (notification) setTimeout(() => setNotification(null), 3000); }, [notification]);
@@ -287,12 +284,10 @@ export default function Home() {
 
   useEffect(() => {
     if (!groupId || (appStep !== 'lobby' && appStep !== 'draw')) return;
-    
     fetchParticipants();
     fetchGroupDetails();
     checkGameStatus();
     
-    // Listen for ALL changes in participants (Insert/Update) to sync status
     const channel = supabase.channel('group-channel')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'participants', filter: `group_id=eq.${groupId}` }, fetchParticipants)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'draws', filter: `group_id=eq.${groupId}` }, checkGameStatus)
@@ -352,25 +347,33 @@ export default function Home() {
     if(error) { setError('เพิ่มไม่ได้: ' + error.message); } else { setNewMemberName(''); }
   };
 
-  // Select Identity from Lobby
-  const handleSelectIdentity = async (participant) => {
+  // --- CONFIRM IDENTITY & CHECK STATUS ---
+  const handleConfirmIdentity = async () => {
+      if (!selectedIdentity) return;
       setIsLoading(true);
+      
       try {
-        setMyId(participant.id);
-        setMyName(participant.name);
-        setWishlist(participant.wishlist || '');
-        setHobby(participant.hobby || '');
-        setMessageToSanta(participant.message_to_santa || '');
+        setMyId(selectedIdentity.id);
+        setMyName(selectedIdentity.name);
+        setWishlist(selectedIdentity.wishlist || '');
+        setHobby(selectedIdentity.hobby || '');
+        setMessageToSanta(selectedIdentity.message_to_santa || '');
         
-        // CHECK IF ALREADY DRAWN
-        const { data: drawData } = await supabase.from('draws').select('*, receiver:receiver_id(*)').eq('drawer_id', participant.id).single();
+        // ** CRITICAL FIX **: เช็ค Database จริงๆ ว่าคนนี้จับไปหรือยัง
+        // ไม่เชื่อ Local State 100% เพราะอาจจะไม่อัปเดต
+        const { data: drawData } = await supabase.from('draws').select('*, receiver:receiver_id(*)').eq('drawer_id', selectedIdentity.id).single();
+        
         if (drawData) {
-            setMyDrawResult(drawData.receiver);
+            setMyDrawResult(drawData.receiver); // Set ผลลัพธ์ที่เคยจับไว้
+            setShowResultCard(true); // บังคับโชว์การ์ดผลลัพธ์เลย (ถ้าเคยจับแล้ว)
+        } else {
+            setMyDrawResult(null);
+            setShowResultCard(false);
         }
         
         setAppStep('draw');
       } catch (err) {
-        setError('เกิดข้อผิดพลาด');
+        setError('เกิดข้อผิดพลาดในการโหลดข้อมูล');
       } finally {
         setIsLoading(false);
       }
@@ -384,12 +387,21 @@ export default function Home() {
   };
 
   const handleDraw = async () => {
+    if (myDrawResult) { setError('คุณจับฉลากไปแล้วนะ!'); return; } // Double check logic
     setIsDrawing(true); setShowResultCard(false);
+    
+    // 1. Get IDs that are already taken
     const { data: draws } = await supabase.from('draws').select('receiver_id').eq('group_id', groupId);
     const takenIds = draws?.map(d => d.receiver_id) || [];
+    
+    // 2. Filter valid receivers (Not me, Not taken)
     const validReceivers = participants.filter(p => p.id !== myId && !takenIds.includes(p.id));
     
-    if (validReceivers.length === 0) { setError('ของขวัญหมดแล้ว!'); setIsDrawing(false); return; }
+    if (validReceivers.length === 0) { 
+        setError('ของขวัญหมดแล้ว!'); 
+        setIsDrawing(false); 
+        return; 
+    }
 
     let count = 0;
     const interval = setInterval(() => {
@@ -400,7 +412,10 @@ export default function Home() {
         const finalResult = validReceivers[Math.floor(Math.random() * validReceivers.length)];
         setDrawnResult(finalResult);
         setTimeout(() => {
-          setIsDrawing(false); setShowResultCard(true);
+          setIsDrawing(false); 
+          setShowResultCard(true);
+          
+          // Save to DB
           supabase.from('draws').insert({ group_id: groupId, drawer_id: myId, receiver_id: finalResult.id });
           supabase.from('participants').update({ has_drawn: true }).eq('id', myId);
           setMyDrawResult(finalResult);
@@ -411,7 +426,9 @@ export default function Home() {
 
   // Derived
   const myParticipant = participants.find(p => p.id === myId);
-  const hasAlreadyDrawn = myParticipant?.has_drawn || myDrawResult;
+  // Status check: rely on DB result (myDrawResult) or local flag (has_drawn)
+  const hasAlreadyDrawn = (myParticipant?.has_drawn) || (myDrawResult !== null);
+  
   const formatDate = (dateStr) => {
       if(!dateStr) return null;
       const date = new Date(dateStr);
@@ -555,13 +572,25 @@ export default function Home() {
                             <SantaIcon 
                                 key={p.id} 
                                 name={p.name} 
-                                hasDrawn={p.has_drawn} // Show Checkmark status
-                                selectable={true} // Enable Hover effect
+                                hasDrawn={p.has_drawn} 
+                                selectable={true} 
+                                isSelected={selectedIdentity?.id === p.id}
                                 isMe={false}
-                                onClick={() => handleSelectIdentity(p)}
+                                onClick={() => setSelectedIdentity(p)}
                             />
                         ))}
                         {participants.length === 0 && <p className="text-gray-300 text-sm italic py-4">ยังไม่มีสมาชิก</p>}
+                    </div>
+
+                    {/* CTA BUTTON */}
+                    <div className="mt-6 pt-2 border-t border-gray-200">
+                        <button 
+                            disabled={!selectedIdentity || isLoading}
+                            onClick={handleConfirmIdentity}
+                            className="w-full bg-red-500 hover:bg-red-600 text-white font-bold py-4 rounded-2xl shadow-lg transform active:scale-95 transition-all disabled:opacity-50 disabled:shadow-none"
+                        >
+                            {isLoading ? '⏳ กำลังเข้า...' : selectedIdentity ? `ไปต่อในชื่อ "${selectedIdentity.name}" →` : 'กรุณาเลือกชื่อของคุณ'}
+                        </button>
                     </div>
 
                     {/* ADD NEW MEMBER SECTION */}
@@ -616,18 +645,20 @@ export default function Home() {
                 </div>
 
                 {/* Action Area */}
-                {showResultCard && drawnResult ? (
-                   <div className="bg-gradient-to-br from-red-50 to-orange-50 border-2 border-red-100 rounded-3xl p-6 text-center animate-fade-in-up shadow-sm">
-                      <p className="text-red-500 font-bold text-sm mb-2">ภารกิจของคุณคือ...</p>
-                      <p className="text-3xl font-extrabold text-gray-800 mb-4">{drawnResult.name}</p>
-                      {drawnResult.wishlist && <div className="bg-white/80 p-2 rounded-lg text-sm text-gray-600 mb-4">🎁 "{drawnResult.wishlist}"</div>}
-                      <button onClick={() => setAppStep('result')} className="bg-red-500 text-white font-bold py-2 px-6 rounded-full shadow-lg hover:bg-red-600">ดูรายละเอียดลับ 🕵️</button>
-                   </div>
-                ) : hasAlreadyDrawn && myDrawResult ? (
-                   <div className="bg-green-50 border border-green-200 rounded-2xl p-6 text-center">
+                {/* Condition: Show Result Card IF (I have a draw result) OR (I am marked as drawn and found the result) */}
+                {hasAlreadyDrawn ? (
+                   <div className="bg-gradient-to-br from-green-50 to-emerald-50 border-2 border-green-200 rounded-3xl p-6 text-center animate-fade-in-up shadow-sm">
                       <p className="text-green-600 font-bold mb-1">✅ คุณจับฉลากแล้ว</p>
-                      <p className="text-2xl font-bold text-gray-800">{myDrawResult.name}</p>
-                      <button onClick={() => setAppStep('result')} className="text-green-600 text-sm font-bold underline mt-3">ดูข้อมูลเพื่อน</button>
+                      
+                      {myDrawResult ? (
+                          <>
+                            <p className="text-3xl font-extrabold text-gray-800 mb-4">{myDrawResult.name}</p>
+                            <button onClick={() => setAppStep('result')} className="bg-green-500 text-white font-bold py-2 px-6 rounded-full shadow-lg hover:bg-green-600">ดูข้อมูลเพื่อน</button>
+                          </>
+                      ) : (
+                          // Fallback if data is missing but marked as drawn (should not happen often with logic fix)
+                          <button onClick={handleConfirmIdentity} className="text-red-500 underline text-sm">โหลดข้อมูลไม่สำเร็จ ลองกดตรงนี้</button>
+                      )}
                    </div>
                 ) : (
                    <div className="py-6 text-center">
@@ -642,9 +673,12 @@ export default function Home() {
                    </div>
                 )}
                 
-                {/* Edit Button Available Always */}
-                <button onClick={() => setShowEditProfileModal(true)} className="w-full text-center text-gray-400 text-sm hover:text-gray-600 mt-2 hover:underline">✏️ แก้ไขข้อมูล / Wishlist</button>
-                <button onClick={() => setAppStep('lobby')} className="w-full text-center text-gray-300 text-xs mt-4 hover:text-gray-500">← กลับไปหน้าเลือกชื่อ</button>
+                {/* Buttons */}
+                {!hasAlreadyDrawn && (
+                   <button onClick={() => setShowEditProfileModal(true)} className="w-full text-center text-gray-400 text-sm hover:text-gray-600 mt-2 hover:underline">✏️ แก้ไขข้อมูล / Wishlist</button>
+                )}
+                
+                <button onClick={() => setAppStep('lobby')} className="w-full text-center text-gray-300 text-xs mt-6 hover:text-gray-500">← เปลี่ยนชื่อ / กลับหน้าเลือก</button>
               </div>
             )}
 
