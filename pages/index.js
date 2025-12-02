@@ -2,51 +2,65 @@ import { useState, useEffect, useCallback } from 'react';
 import { createClient } from '@supabase/supabase-js';
 import Head from 'next/head';
 
-// Supabase Configuration (Logic เดิม 100%)
 const SUPABASE_URL = 'https://eiklxtnjuepjauulrark.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVpa2x4dG5qdWVwamF1dWxyYXJrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQyNDc5MDksImV4cCI6MjA3OTgyMzkwOX0.b4dO8KWbSAaJphuQD-ZTVQpiYxN5KUP_DyQ6PUlzVF4';
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 export default function Home() {
-  // --- STATE MANAGEMENT (คงเดิมตาม Logic เดิม) ---
+  // App State
   const [appStep, setAppStep] = useState('landing');
   
+  // Group State
   const [groupId, setGroupId] = useState('');
   const [groupName, setGroupName] = useState('');
   const [budgetMin, setBudgetMin] = useState(300);
   const [budgetMax, setBudgetMax] = useState(500);
   const [eventDate, setEventDate] = useState('');
   
+  // User State
   const [myName, setMyName] = useState('');
   const [myId, setMyId] = useState(null);
   const [wishlist, setWishlist] = useState('');
   const [hobby, setHobby] = useState('');
+  const [messageToSanta, setMessageToSanta] = useState('');
   
+  // Game State
   const [participants, setParticipants] = useState([]);
   const [drawnResult, setDrawnResult] = useState(null);
   const [isDrawing, setIsDrawing] = useState(false);
   const [myDrawResult, setMyDrawResult] = useState(null);
   
+  // UI State
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
   const [notification, setNotification] = useState(null);
   const [saveStatus, setSaveStatus] = useState(null);
   const [lobbyParticipants, setLobbyParticipants] = useState([]);
+  const [showWishlistForm, setShowWishlistForm] = useState(false);
 
-  // UI Helper States (New for UX improvement)
-  const [showWishlistInput, setShowWishlistInput] = useState(false); // ซ่อน wishlist ก่อนเพื่อลด cognitive load
+  // Auto-hide notifications
+  useEffect(() => {
+    if (notification) {
+      const timer = setTimeout(() => setNotification(null), 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [notification]);
 
-  // --- LOGIC FUNCTIONS (คงเดิม ไม่แตะต้อง DB) ---
+  useEffect(() => {
+    if (error) {
+      const timer = setTimeout(() => setError(null), 4000);
+      return () => clearTimeout(timer);
+    }
+  }, [error]);
+
+  // Generate Group ID
   const generateGroupId = () => {
     const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-    let result = '';
-    for (let i = 0; i < 6; i++) {
-      result += chars.charAt(Math.floor(Math.random() * chars.length));
-    }
-    return result;
+    return Array.from({ length: 6 }, () => chars.charAt(Math.floor(Math.random() * chars.length))).join('');
   };
 
+  // Fetch Lobby Participants
   const fetchLobbyParticipants = useCallback(async () => {
     if (!groupId) return;
     try {
@@ -55,436 +69,711 @@ export default function Home() {
         .select('*')
         .eq('group_id', groupId)
         .order('created_at', { ascending: true });
-
       if (fetchError) throw fetchError;
       setLobbyParticipants(data || []);
     } catch (err) {
-      console.error('Fetch lobby error:', err);
+      console.error('Fetch error:', err);
     }
   }, [groupId]);
 
+  // Realtime for Lobby
   useEffect(() => {
     if (!groupId || appStep !== 'lobby') return;
     fetchLobbyParticipants();
     const channel = supabase
       .channel('lobby-channel')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'participants', filter: `group_id=eq.${groupId}` }, 
-      () => fetchLobbyParticipants())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'participants', filter: `group_id=eq.${groupId}` }, fetchLobbyParticipants)
       .subscribe();
-    return () => { supabase.removeChannel(channel); };
+    return () => supabase.removeChannel(channel);
   }, [groupId, appStep, fetchLobbyParticipants]);
 
-  const handleAddOtherMember = async (name) => {
-    if (!name.trim()) return;
-    try {
-      const existing = lobbyParticipants.find(p => p.name.toLowerCase() === name.toLowerCase());
-      if (existing) {
-        setError('ชื่อนี้มีเพื่อนใช้ไปแล้วน้า 😅');
-        return;
-      }
-      const { error: insertError } = await supabase.from('participants').insert({ group_id: groupId, name: name.trim(), has_drawn: false });
-      if (insertError) throw insertError;
-      setNotification(`เพิ่ม ${name} เข้าแก๊งแล้ว! 🎅`);
-    } catch (err) {
-      setError('อุ๊ย เพิ่มไม่ได้: ' + err.message);
-    }
-  };
-
+  // Create Group (FIXED BUG)
   const handleCreateGroup = async () => {
-    if (!groupName.trim()) { setError('ตั้งชื่อแก๊งหน่อยสิครับ'); return; }
+    if (!groupName.trim()) {
+      setError('ตั้งชื่อกลุ่มก่อนนะ!');
+      return;
+    }
     try {
       setIsLoading(true);
       const newGroupId = generateGroupId();
-      const { error: createError } = await supabase.from('groups').insert({ id: newGroupId, name: groupName, budget_min: budgetMin, budget_max: budgetMax, event_date: eventDate || null }).single();
+      
+      const { data, error: createError } = await supabase
+        .from('groups')
+        .insert({
+          id: newGroupId,
+          name: groupName.trim(),
+          budget_min: budgetMin,
+          budget_max: budgetMax,
+          event_date: eventDate || null
+        })
+        .select()
+        .single();
+
       if (createError) throw createError;
+      
       setGroupId(newGroupId);
       setAppStep('lobby');
-      setNotification(`สร้างบ้านซานต้าสำเร็จ! 🏠`);
-    } catch (err) { setError('สร้างไม่สำเร็จ: ' + err.message); } finally { setIsLoading(false); }
+      setNotification('สร้างกลุ่มสำเร็จ! 🎉');
+    } catch (err) {
+      setError('สร้างไม่สำเร็จ: ' + err.message);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
+  // Join Group
   const handleJoinGroup = async () => {
-    if (!groupId.trim()) { setError('ขอรหัสผ่านเข้าบ้านหน่อยครับ'); return; }
+    if (!groupId.trim() || groupId.length < 6) {
+      setError('ใส่รหัส 6 หลักให้ครบนะ');
+      return;
+    }
     try {
       setIsLoading(true);
-      const { data, error: fetchError } = await supabase.from('groups').select('*').eq('id', groupId.toUpperCase()).single();
-      if (fetchError) throw new Error('ไม่เจอบ้านเลขที่นี้เลย 🥶');
+      const { data, error: fetchError } = await supabase
+        .from('groups')
+        .select('*')
+        .eq('id', groupId.toUpperCase())
+        .single();
+
+      if (fetchError) throw new Error('ไม่เจอกลุ่มนี้ ลองเช็ครหัสอีกที');
+      
       setGroupId(data.id);
       setGroupName(data.name);
       setBudgetMin(data.budget_min);
       setBudgetMax(data.budget_max);
       setEventDate(data.event_date);
       setAppStep('lobby');
-    } catch (err) { setError(err.message); } finally { setIsLoading(false); }
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
+  // Add Other Member (with duplicate check)
+  const handleAddOtherMember = async (name) => {
+    if (!name.trim()) return;
+    
+    const trimmedName = name.trim();
+    
+    // Check duplicate with existing participants
+    const isDuplicate = lobbyParticipants.some(
+      p => p.name.toLowerCase() === trimmedName.toLowerCase()
+    );
+    
+    // Check duplicate with my own name
+    const isSameAsMe = myName.trim().toLowerCase() === trimmedName.toLowerCase();
+    
+    if (isDuplicate || isSameAsMe) {
+      setError(`"${trimmedName}" มีในกลุ่มแล้วนะ!`);
+      return;
+    }
+    
+    try {
+      const { error: insertError } = await supabase
+        .from('participants')
+        .insert({ group_id: groupId, name: trimmedName, has_drawn: false });
+      if (insertError) throw insertError;
+      setNotification(`เพิ่ม ${trimmedName} แล้ว! ✨`);
+    } catch (err) {
+      setError('เพิ่มไม่ได้: ' + err.message);
+    }
+  };
+
+  // Delete Member
+  const handleDeleteMember = async (memberId, memberName) => {
+    try {
+      const { error: deleteError } = await supabase
+        .from('participants')
+        .delete()
+        .eq('id', memberId);
+      if (deleteError) throw deleteError;
+      setNotification(`ลบ ${memberName} แล้ว`);
+    } catch (err) {
+      setError('ลบไม่ได้: ' + err.message);
+    }
+  };
+
+  // Join as Participant
   const handleJoinAsParticipant = async () => {
-    if (!myName.trim()) { setError('บอกชื่อให้ซานต้ารู้หน่อยครับ'); return; }
+    if (!myName.trim()) {
+      setError('ใส่ชื่อก่อนนะ!');
+      return;
+    }
+    
+    // Check if name already exists
+    const isDuplicate = lobbyParticipants.some(
+      p => p.name.toLowerCase() === myName.trim().toLowerCase()
+    );
+    
     try {
       setIsLoading(true);
-      const { data: existing } = await supabase.from('participants').select('*').eq('group_id', groupId).eq('name', myName.trim());
-      if (existing && existing.length > 0) {
-        setMyId(existing[0].id);
-        setWishlist(existing[0].wishlist || '');
-        setHobby(existing[0].hobby || '');
-        const { data: drawData } = await supabase.from('draws').select('*, receiver:receiver_id(name, wishlist, hobby)').eq('drawer_id', existing[0].id).single();
+      
+      if (isDuplicate) {
+        // Already exists - just log in as that person
+        const existing = lobbyParticipants.find(
+          p => p.name.toLowerCase() === myName.trim().toLowerCase()
+        );
+        setMyId(existing.id);
+        setWishlist(existing.wishlist || '');
+        setHobby(existing.hobby || '');
+        setMessageToSanta(existing.message_to_santa || '');
+        
+        // Check if already drawn
+        const { data: drawData } = await supabase
+          .from('draws')
+          .select('*, receiver:receiver_id(name, wishlist, hobby, message_to_santa)')
+          .eq('drawer_id', existing.id)
+          .single();
         if (drawData) setMyDrawResult(drawData.receiver);
       } else {
-        const { data, error: insertError } = await supabase.from('participants').insert({ group_id: groupId, name: myName.trim(), wishlist: wishlist.trim() || null, hobby: hobby.trim() || null, has_drawn: false }).select().single();
+        // Create new participant
+        const { data, error: insertError } = await supabase
+          .from('participants')
+          .insert({
+            group_id: groupId,
+            name: myName.trim(),
+            wishlist: wishlist.trim() || null,
+            hobby: hobby.trim() || null,
+            message_to_santa: messageToSanta.trim() || null,
+            has_drawn: false
+          })
+          .select()
+          .single();
         if (insertError) throw insertError;
         setMyId(data.id);
       }
+      
       setAppStep('draw');
-    } catch (err) { setError('เข้าบ้านไม่สำเร็จ: ' + err.message); } finally { setIsLoading(false); }
+    } catch (err) {
+      setError('เข้าร่วมไม่สำเร็จ: ' + err.message);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
+  // Update Profile
   const handleUpdateProfile = async () => {
     if (!myId) return;
     try {
       setSaveStatus('saving');
-      const { error: updateError } = await supabase.from('participants').update({ wishlist: wishlist.trim() || null, hobby: hobby.trim() || null }).eq('id', myId);
+      const { error: updateError } = await supabase
+        .from('participants')
+        .update({
+          wishlist: wishlist.trim() || null,
+          hobby: hobby.trim() || null,
+          message_to_santa: messageToSanta.trim() || null
+        })
+        .eq('id', myId);
       if (updateError) throw updateError;
       setSaveStatus('saved');
       setTimeout(() => setSaveStatus(null), 2000);
-    } catch (err) { setError('ส่งจดหมายไม่ผ่าน: ' + err.message); setSaveStatus(null); }
+    } catch (err) {
+      setError('บันทึกไม่สำเร็จ');
+      setSaveStatus(null);
+    }
   };
 
+  // Fetch Participants for Draw
   const fetchParticipants = useCallback(async () => {
     if (!groupId) return;
     try {
-      const { data, error: fetchError } = await supabase.from('participants').select('*').eq('group_id', groupId).order('created_at', { ascending: true });
+      const { data, error: fetchError } = await supabase
+        .from('participants')
+        .select('*')
+        .eq('group_id', groupId)
+        .order('created_at', { ascending: true });
       if (fetchError) throw fetchError;
       setParticipants(data || []);
-    } catch (err) { console.error('Fetch error:', err); }
+    } catch (err) {
+      console.error('Fetch error:', err);
+    }
   }, [groupId]);
 
+  // Realtime for Draw
   useEffect(() => {
     if (!groupId || appStep !== 'draw') return;
     fetchParticipants();
-    const channel = supabase.channel('participants-channel').on('postgres_changes', { event: '*', schema: 'public', table: 'participants', filter: `group_id=eq.${groupId}` }, () => fetchParticipants()).subscribe();
-    return () => { supabase.removeChannel(channel); };
+    const channel = supabase
+      .channel('draw-channel')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'participants', filter: `group_id=eq.${groupId}` }, fetchParticipants)
+      .subscribe();
+    return () => supabase.removeChannel(channel);
   }, [groupId, appStep, fetchParticipants]);
 
+  // Handle Draw
   const handleDraw = async () => {
     setIsDrawing(true);
-    const { data: draws } = await supabase.from('draws').select('receiver_id').eq('group_id', groupId);
+    
+    const { data: draws } = await supabase
+      .from('draws')
+      .select('receiver_id')
+      .eq('group_id', groupId);
+    
     const takenIds = draws?.map(d => d.receiver_id) || [];
     const validReceivers = participants.filter(p => p.id !== myId && !takenIds.includes(p.id));
-    if (validReceivers.length === 0) { setError('ของขวัญหมดเกลี้ยงแล้ว! (ไม่มีคนให้จับ)'); setIsDrawing(false); return; }
+    
+    if (validReceivers.length === 0) {
+      setError('ไม่มีคนให้จับแล้ว!');
+      setIsDrawing(false);
+      return;
+    }
+
+    // Animation
     let count = 0;
     const interval = setInterval(() => {
-      const randomIndex = Math.floor(Math.random() * validReceivers.length);
-      setDrawnResult(validReceivers[randomIndex]);
+      setDrawnResult(validReceivers[Math.floor(Math.random() * validReceivers.length)]);
       count++;
-      if (count > 15) {
+      if (count > 20) {
         clearInterval(interval);
         const finalResult = validReceivers[Math.floor(Math.random() * validReceivers.length)];
         setDrawnResult(finalResult);
         setIsDrawing(false);
         saveDrawResult(finalResult);
       }
-    }, 100);
+    }, 80);
   };
 
+  // Save Draw Result
   const saveDrawResult = async (receiver) => {
     try {
       await supabase.from('draws').insert({ group_id: groupId, drawer_id: myId, receiver_id: receiver.id });
       await supabase.from('participants').update({ has_drawn: true }).eq('id', myId);
       setMyDrawResult(receiver);
       setAppStep('result');
-    } catch (err) { setError('ระบบขัดข้อง: ' + err.message); }
+    } catch (err) {
+      setError('บันทึกไม่สำเร็จ: ' + err.message);
+    }
   };
 
-  // Helper Variables
+  // Derived State
+  const pendingDraw = participants.filter(p => !p.has_drawn);
+  const completedDraw = participants.filter(p => p.has_drawn);
   const myParticipant = participants.find(p => p.id === myId);
   const hasAlreadyDrawn = myParticipant?.has_drawn || myDrawResult;
 
-  // --- RENDER UI (New Cartoon Theme) ---
+  // Budget Step Component
+  const BudgetStepper = ({ value, onChange, label }) => (
+    <div className="flex items-center gap-2">
+      <button
+        type="button"
+        onClick={() => onChange(Math.max(0, value - 100))}
+        className="w-10 h-10 bg-white border-2 border-gray-200 rounded-xl font-bold text-gray-500 hover:border-red-300 hover:text-red-500 transition-all active:scale-95"
+      >
+        −
+      </button>
+      <div className="flex-1 text-center">
+        <input
+          type="number"
+          value={value}
+          onChange={(e) => onChange(Math.max(0, Number(e.target.value)))}
+          className="w-full text-center bg-gray-50 border-2 border-gray-200 rounded-xl py-2 font-bold text-gray-700 focus:border-red-400 focus:outline-none"
+        />
+        <span className="text-xs text-gray-400">{label}</span>
+      </div>
+      <button
+        type="button"
+        onClick={() => onChange(value + 100)}
+        className="w-10 h-10 bg-white border-2 border-gray-200 rounded-xl font-bold text-gray-500 hover:border-green-300 hover:text-green-500 transition-all active:scale-95"
+      >
+        +
+      </button>
+    </div>
+  );
+
   return (
     <>
       <Head>
         <title>Secret Santa 🎅</title>
-        <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
-        <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@300;400;600&family=Nunito:wght@400;700&display=swap" rel="stylesheet" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800&display=swap" rel="stylesheet" />
       </Head>
 
-      {/* Background: Cozy Red Christmas Theme */}
-      <div className="min-h-screen bg-[#D42426] relative font-['Nunito',_sans-serif] selection:bg-green-200">
+      <div className="min-h-screen bg-gradient-to-b from-red-600 via-red-500 to-red-700 font-['Nunito'] selection:bg-green-300">
         
-        {/* Snow Effect (CSS only simplified) */}
-        <div className="absolute inset-0 overflow-hidden pointer-events-none opacity-40">
-           <div className="absolute top-0 left-1/4 w-3 h-3 bg-white rounded-full animate-bounce delay-75"></div>
-           <div className="absolute top-10 left-3/4 w-2 h-2 bg-white rounded-full animate-bounce delay-150"></div>
-           <div className="absolute top-1/2 left-1/2 w-4 h-4 bg-white/50 rounded-full animate-pulse"></div>
+        {/* Snow particles */}
+        <div className="fixed inset-0 pointer-events-none overflow-hidden">
+          {[...Array(15)].map((_, i) => (
+            <div
+              key={i}
+              className="absolute w-2 h-2 bg-white rounded-full opacity-60"
+              style={{
+                left: `${Math.random() * 100}%`,
+                top: `${Math.random() * 100}%`,
+                animation: `float ${3 + Math.random() * 4}s ease-in-out infinite`,
+                animationDelay: `${Math.random() * 2}s`
+              }}
+            />
+          ))}
         </div>
+
+        <style jsx global>{`
+          @keyframes float {
+            0%, 100% { transform: translateY(0) rotate(0deg); opacity: 0.6; }
+            50% { transform: translateY(-20px) rotate(180deg); opacity: 1; }
+          }
+          @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            25% { transform: translateX(-5px); }
+            75% { transform: translateX(5px); }
+          }
+          .animate-shake { animation: shake 0.3s ease-in-out; }
+        `}</style>
 
         <div className="container mx-auto px-4 py-6 max-w-md relative z-10">
           
-          {/* Header Area */}
-          <div className="text-center mb-6 pt-4">
-            <div className="inline-block bg-white p-4 rounded-full shadow-lg mb-4 border-4 border-green-500 transform hover:scale-110 transition-transform cursor-default">
-              <span className="text-5xl">🎅</span>
+          {/* Header */}
+          <div className="text-center mb-6 pt-2">
+            <div className="inline-block bg-white p-3 rounded-full shadow-lg border-4 border-green-500 mb-3">
+              <span className="text-4xl">🎅</span>
             </div>
-            <h1 className="text-3xl font-['Fredoka'] font-bold text-white drop-shadow-md">
-              Secret Santa
-            </h1>
-            <p className="text-white/80 text-sm font-medium mt-1 bg-black/10 inline-block px-3 py-1 rounded-full">
-              ภารกิจลับฉบับซานต้า
-            </p>
+            <h1 className="text-3xl font-extrabold text-white drop-shadow-lg">Secret Santa</h1>
+            <p className="text-red-100 text-sm mt-1">จับฉลากแลกของขวัญ</p>
           </div>
 
-          {/* Toast Notification */}
-          {(error || notification) && (
-            <div className={`fixed top-4 left-1/2 transform -translate-x-1/2 z-50 px-6 py-3 rounded-full shadow-2xl flex items-center gap-3 animate-bounce ${error ? 'bg-red-100 text-red-600 border-2 border-red-500' : 'bg-green-100 text-green-700 border-2 border-green-500'}`}>
-              <span className="text-xl">{error ? '⛄️' : '🎁'}</span>
-              <span className="font-bold">{error || notification}</span>
-              <button onClick={() => {setError(null); setNotification(null)}} className="ml-2 opacity-50 hover:opacity-100">✕</button>
+          {/* Toast Notifications */}
+          {error && (
+            <div className="fixed top-4 left-4 right-4 z-50 animate-shake">
+              <div className="bg-white border-l-4 border-red-500 rounded-xl px-4 py-3 shadow-xl flex items-center gap-3 max-w-md mx-auto">
+                <span className="text-2xl">😅</span>
+                <span className="text-gray-700 font-medium flex-1">{error}</span>
+                <button onClick={() => setError(null)} className="text-gray-400 hover:text-gray-600">✕</button>
+              </div>
+            </div>
+          )}
+          
+          {notification && (
+            <div className="fixed top-4 left-4 right-4 z-50">
+              <div className="bg-white border-l-4 border-green-500 rounded-xl px-4 py-3 shadow-xl flex items-center gap-3 max-w-md mx-auto">
+                <span className="text-2xl">🎁</span>
+                <span className="text-gray-700 font-medium flex-1">{notification}</span>
+              </div>
             </div>
           )}
 
-          {/* --- MAIN CARD --- */}
-          <div className="bg-[#FFF9F5] rounded-[2.5rem] p-6 shadow-2xl border-b-8 border-[#00000010] relative overflow-hidden">
+          {/* Main Card */}
+          <div className="bg-white rounded-3xl p-6 shadow-2xl">
             
-            {/* Decorative Top */}
-            <div className="absolute top-0 left-0 right-0 h-4 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] opacity-10"></div>
-
-            {/* STEP: LANDING */}
+            {/* LANDING */}
             {appStep === 'landing' && (
               <div className="space-y-4 py-4">
-                <div className="text-center space-y-2 mb-8">
-                  <h2 className="text-xl font-bold text-gray-700">ยินดีต้อนรับสู่ขั้วโลกเหนือ!</h2>
-                  <p className="text-gray-500 text-sm">พร้อมจะแลกของขวัญกันหรือยัง?</p>
+                <div className="text-center mb-6">
+                  <h2 className="text-xl font-bold text-gray-800">ยินดีต้อนรับ! 🎄</h2>
+                  <p className="text-gray-500 text-sm mt-1">พร้อมจับฉลากกันหรือยัง?</p>
                 </div>
                 
-                <button onClick={() => setAppStep('create')} className="w-full group relative bg-green-500 hover:bg-green-600 text-white font-bold py-4 px-6 rounded-2xl shadow-[0_4px_0_rgb(21,128,61)] active:shadow-none active:translate-y-[4px] transition-all">
-                  <span className="text-2xl mr-2">🏠</span> สร้างบ้านหลังใหม่
-                  <div className="absolute -top-2 -right-2 bg-red-500 text-white text-xs px-2 py-1 rounded-full transform rotate-12 group-hover:rotate-0 transition-transform">New!</div>
+                <button
+                  onClick={() => setAppStep('create')}
+                  className="w-full bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 text-white font-bold py-4 px-6 rounded-2xl shadow-lg transition-all active:scale-[0.98]"
+                >
+                  🏠 สร้างกลุ่มใหม่
                 </button>
 
-                <button onClick={() => setAppStep('join')} className="w-full bg-white border-2 border-gray-200 hover:border-green-400 text-gray-600 font-bold py-4 px-6 rounded-2xl shadow-sm hover:shadow-md transition-all">
-                  <span className="text-2xl mr-2">🔑</span> มีรหัสเข้าบ้านแล้ว
+                <button
+                  onClick={() => setAppStep('join')}
+                  className="w-full bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold py-4 px-6 rounded-2xl transition-all"
+                >
+                  🔑 มีรหัสกลุ่มแล้ว
                 </button>
               </div>
             )}
 
-            {/* STEP: CREATE */}
+            {/* CREATE GROUP */}
             {appStep === 'create' && (
               <div className="space-y-5">
                 <div className="text-center">
-                  <h2 className="text-xl font-bold text-gray-800">สร้างบ้านปาร์ตี้ 🎉</h2>
+                  <h2 className="text-xl font-bold text-gray-800">สร้างกลุ่มใหม่ 🎉</h2>
                 </div>
 
-                <div className="space-y-3">
-                  <label className="block text-sm font-bold text-gray-500 ml-2">ชื่อแก๊งของคุณ</label>
-                  <input 
-                    type="text" 
+                <div>
+                  <label className="block text-sm font-bold text-gray-500 mb-2">ชื่อกลุ่ม</label>
+                  <input
+                    type="text"
                     value={groupName}
                     onChange={(e) => setGroupName(e.target.value)}
-                    placeholder="เช่น แก๊งออฟฟิศ, เพื่อน ม.6"
-                    className="w-full bg-gray-100 border-transparent focus:bg-white focus:border-green-400 focus:ring-0 rounded-2xl px-5 py-3 font-bold text-gray-700 placeholder-gray-400 transition-all"
+                    placeholder="เช่น แก๊งออฟฟิศ, เพื่อนมหาลัย"
+                    className="w-full bg-gray-50 border-2 border-gray-200 rounded-xl px-4 py-3 text-gray-700 font-medium focus:border-green-400 focus:outline-none transition-colors"
                     autoFocus
                   />
                 </div>
 
-                <div className="bg-blue-50 p-4 rounded-2xl space-y-3">
-                  <label className="block text-sm font-bold text-blue-500 ml-1">💰 งบของขวัญ (บาท)</label>
-                  <div className="flex items-center gap-3">
-                    <input type="number" value={budgetMin} onChange={e => setBudgetMin(Number(e.target.value))} className="w-full text-center bg-white rounded-xl py-2 font-bold text-gray-700 shadow-sm border-none ring-1 ring-blue-100" />
-                    <span className="text-gray-400 font-bold">-</span>
-                    <input type="number" value={budgetMax} onChange={e => setBudgetMax(Number(e.target.value))} className="w-full text-center bg-white rounded-xl py-2 font-bold text-gray-700 shadow-sm border-none ring-1 ring-blue-100" />
+                <div className="bg-green-50 p-4 rounded-2xl space-y-4">
+                  <label className="block text-sm font-bold text-green-700">💰 งบประมาณ (บาท)</label>
+                  <div className="grid grid-cols-2 gap-4">
+                    <BudgetStepper value={budgetMin} onChange={setBudgetMin} label="ขั้นต่ำ" />
+                    <BudgetStepper value={budgetMax} onChange={setBudgetMax} label="สูงสุด" />
                   </div>
                 </div>
 
                 <div className="flex gap-3 pt-2">
-                  <button onClick={() => setAppStep('landing')} className="flex-1 bg-gray-200 hover:bg-gray-300 text-gray-600 font-bold py-3 rounded-xl transition-colors">กลับ</button>
-                  <button onClick={handleCreateGroup} disabled={isLoading} className="flex-[2] bg-green-500 hover:bg-green-600 text-white font-bold py-3 rounded-xl shadow-[0_4px_0_rgb(21,128,61)] active:shadow-none active:translate-y-[4px] transition-all">
-                    {isLoading ? '🔨 กำลังสร้าง...' : 'สร้างเลย! ✨'}
+                  <button
+                    onClick={() => setAppStep('landing')}
+                    className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-600 font-bold py-3 rounded-xl transition-colors"
+                  >
+                    ← กลับ
+                  </button>
+                  <button
+                    onClick={handleCreateGroup}
+                    disabled={isLoading}
+                    className="flex-[2] bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 text-white font-bold py-3 rounded-xl transition-all disabled:opacity-50"
+                  >
+                    {isLoading ? '⏳ กำลังสร้าง...' : 'สร้างเลย! ✨'}
                   </button>
                 </div>
               </div>
             )}
 
-            {/* STEP: JOIN */}
+            {/* JOIN GROUP */}
             {appStep === 'join' && (
-              <div className="space-y-6 text-center">
-                 <h2 className="text-xl font-bold text-gray-800">ขอรหัสผ่านหน่อยครับ 🚪</h2>
-                 
-                 <div className="relative">
-                   <input 
+              <div className="space-y-5">
+                <div className="text-center">
+                  <h2 className="text-xl font-bold text-gray-800">เข้าร่วมกลุ่ม 🚪</h2>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-bold text-gray-500 mb-2">รหัสกลุ่ม 6 หลัก</label>
+                  <input
                     type="text"
                     value={groupId}
                     onChange={(e) => setGroupId(e.target.value.toUpperCase())}
-                    maxLength={6}
                     placeholder="XXXXXX"
-                    className="w-full text-center text-4xl font-['Fredoka'] tracking-widest uppercase bg-gray-100 border-2 border-dashed border-gray-300 focus:border-green-500 rounded-2xl py-6 text-gray-700 focus:outline-none transition-colors"
-                   />
-                   <p className="text-xs text-gray-400 mt-2">รหัส 6 หลักที่เพื่อนส่งให้</p>
-                 </div>
+                    maxLength={6}
+                    className="w-full text-center text-3xl tracking-[0.3em] uppercase bg-gray-50 border-2 border-dashed border-gray-300 rounded-xl py-4 text-gray-700 font-bold focus:border-green-400 focus:outline-none transition-colors"
+                    autoFocus
+                  />
+                </div>
 
-                 <div className="flex gap-3">
-                  <button onClick={() => setAppStep('landing')} className="flex-1 bg-gray-200 text-gray-600 font-bold py-3 rounded-xl">กลับ</button>
-                  <button onClick={handleJoinGroup} disabled={isLoading || groupId.length < 6} className="flex-[2] bg-green-500 hover:bg-green-600 text-white font-bold py-3 rounded-xl shadow-[0_4px_0_rgb(21,128,61)] active:shadow-none active:translate-y-[4px] transition-all disabled:opacity-50 disabled:shadow-none">
-                    {isLoading ? '🔍 กำลังหา...' : 'เคาะประตู ✊'}
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => setAppStep('landing')}
+                    className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-600 font-bold py-3 rounded-xl transition-colors"
+                  >
+                    ← กลับ
+                  </button>
+                  <button
+                    onClick={handleJoinGroup}
+                    disabled={isLoading || groupId.length < 6}
+                    className="flex-[2] bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 text-white font-bold py-3 rounded-xl transition-all disabled:opacity-50"
+                  >
+                    {isLoading ? '⏳ กำลังหา...' : 'เข้าร่วม →'}
                   </button>
                 </div>
               </div>
             )}
 
-            {/* STEP: LOBBY (MAJOR REFACTOR FOR COGNITIVE LOAD) */}
+            {/* LOBBY */}
             {appStep === 'lobby' && (
-              <div className="space-y-6">
+              <div className="space-y-5">
                 
-                {/* 1. Group Identity */}
-                <div className="text-center">
-                  <h2 className="text-2xl font-['Fredoka'] font-bold text-gray-800">{groupName}</h2>
-                  <div 
-                    onClick={() => {navigator.clipboard.writeText(groupId); setNotification('ก็อปปี้รหัสแล้ว!')}}
-                    className="mt-2 inline-flex items-center gap-2 bg-yellow-100 text-yellow-800 px-4 py-1.5 rounded-full font-mono font-bold cursor-pointer hover:bg-yellow-200 transition-colors"
-                  >
-                    {groupId} <span className="text-xs opacity-50">📋 แตะเพื่อคัดลอก</span>
-                  </div>
+                {/* Group Code - Tap to Copy */}
+                <div 
+                  onClick={() => {
+                    navigator.clipboard.writeText(groupId);
+                    setNotification('คัดลอกรหัสแล้ว!');
+                  }}
+                  className="bg-gradient-to-r from-red-500 to-red-600 text-white rounded-2xl p-4 text-center cursor-pointer hover:from-red-600 hover:to-red-700 transition-all active:scale-[0.98]"
+                >
+                  <p className="text-red-100 text-xs mb-1">📢 แตะเพื่อคัดลอกรหัส</p>
+                  <p className="text-3xl font-bold tracking-[0.2em] font-mono">{groupId}</p>
                 </div>
 
-                {/* 2. My Identity (Focus here first) */}
-                <div className="bg-white border-2 border-gray-100 p-5 rounded-2xl shadow-sm space-y-4">
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className="bg-red-100 text-red-500 p-1.5 rounded-lg text-lg">👤</span>
-                    <label className="font-bold text-gray-700">คุณชื่ออะไร?</label>
-                  </div>
-                  <input 
+                {/* Group Info */}
+                <div className="text-center py-2">
+                  <h2 className="text-xl font-bold text-gray-800">{groupName}</h2>
+                  <p className="text-green-600 font-bold">💰 {budgetMin.toLocaleString()} - {budgetMax.toLocaleString()} บาท</p>
+                </div>
+
+                {/* My Info */}
+                <div className="bg-gray-50 p-4 rounded-2xl space-y-3">
+                  <label className="block text-sm font-bold text-gray-600">👤 ชื่อของคุณ</label>
+                  <input
                     type="text"
                     value={myName}
                     onChange={(e) => setMyName(e.target.value)}
-                    placeholder="ใส่ชื่อเล่นได้เลย..."
-                    className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-gray-700 focus:ring-2 focus:ring-red-200 focus:border-red-400 outline-none transition-all"
+                    placeholder="ใส่ชื่อเล่นของคุณ"
+                    className="w-full bg-white border-2 border-gray-200 rounded-xl px-4 py-3 text-gray-700 font-medium focus:border-red-400 focus:outline-none"
                   />
                   
-                  {/* Progressive Disclosure: Wishlist */}
-                  {!showWishlistInput ? (
-                    <button onClick={() => setShowWishlistInput(true)} className="text-sm text-green-600 font-bold hover:underline flex items-center gap-1">
-                      + เขียนจดหมายถึงซานต้า (Wishlist)
+                  {/* Wishlist Toggle */}
+                  {!showWishlistForm ? (
+                    <button
+                      onClick={() => setShowWishlistForm(true)}
+                      className="text-sm text-green-600 font-bold hover:text-green-700 flex items-center gap-1"
+                    >
+                      ✉️ เขียนจดหมายถึง Santa →
                     </button>
                   ) : (
-                    <div className="space-y-2 animate-fadeIn bg-green-50 p-3 rounded-xl">
-                      <input 
-                        type="text" 
-                        value={wishlist} 
-                        onChange={e => setWishlist(e.target.value)} 
-                        placeholder="🎁 อยากได้อะไรบอกใบ้หน่อย"
-                        className="w-full bg-white border-none rounded-lg px-3 py-2 text-sm text-gray-600 placeholder-green-300/70"
-                      />
-                      <input 
-                        type="text" 
-                        value={hobby} 
-                        onChange={e => setHobby(e.target.value)} 
-                        placeholder="🎨 งานอดิเรกที่ชอบ"
-                        className="w-full bg-white border-none rounded-lg px-3 py-2 text-sm text-gray-600 placeholder-green-300/70"
-                      />
+                    <div className="bg-white border-2 border-green-200 p-4 rounded-xl space-y-3 relative">
+                      <button
+                        onClick={() => setShowWishlistForm(false)}
+                        className="absolute top-2 right-2 text-gray-400 hover:text-gray-600 text-lg"
+                      >
+                        ✕
+                      </button>
+                      
+                      <div>
+                        <label className="block text-xs font-bold text-gray-500 mb-1">🎁 Wishlist - อยากได้อะไร?</label>
+                        <input
+                          type="text"
+                          value={wishlist}
+                          onChange={(e) => setWishlist(e.target.value)}
+                          placeholder="เช่น หนังสือ, ขนม, สกินแคร์"
+                          className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-gray-700 text-sm focus:border-green-400 focus:outline-none"
+                        />
+                      </div>
+                      
+                      <div>
+                        <label className="block text-xs font-bold text-gray-500 mb-1">🎨 งานอดิเรก</label>
+                        <input
+                          type="text"
+                          value={hobby}
+                          onChange={(e) => setHobby(e.target.value)}
+                          placeholder="เช่น อ่านหนังสือ, ดูหนัง, เล่นเกม"
+                          className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-gray-700 text-sm focus:border-green-400 focus:outline-none"
+                        />
+                      </div>
+                      
+                      <div>
+                        <label className="block text-xs font-bold text-gray-500 mb-1">💌 ข้อความถึง Santa</label>
+                        <textarea
+                          value={messageToSanta}
+                          onChange={(e) => setMessageToSanta(e.target.value)}
+                          placeholder="บอกอะไร Santa เพิ่มเติมได้นะ..."
+                          rows={2}
+                          className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-gray-700 text-sm focus:border-green-400 focus:outline-none resize-none"
+                        />
+                      </div>
                     </div>
                   )}
                 </div>
 
-                {/* 3. Friends List (Easy Add) */}
+                {/* Add Members */}
                 <div className="space-y-3">
-                   <div className="flex items-center justify-between px-2">
-                     <span className="text-sm font-bold text-gray-500">เพื่อนที่มาแล้ว ({lobbyParticipants.length})</span>
-                     <span className="text-xs text-gray-400">ถ้าเพื่อนไม่สะดวก พิมพ์เพิ่มให้ได้นะ 👇</span>
-                   </div>
-                   
-                   {/* Add Member Input with Enter key hint */}
-                   <div className="relative group">
-                      <input 
-                        type="text"
-                        id="quickAdd"
-                        placeholder="พิมพ์ชื่อเพื่อน แล้วกด Enter ↵"
-                        className="w-full bg-white border-2 border-dashed border-gray-300 rounded-xl pl-4 pr-10 py-3 text-sm focus:border-green-400 focus:ring-0 outline-none transition-colors"
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') {
-                            handleAddOtherMember(e.target.value);
-                            e.target.value = '';
-                          }
-                        }}
-                      />
-                      <button 
-                        onClick={() => {
-                          const input = document.getElementById('quickAdd');
+                  <div className="flex items-center justify-between">
+                    <label className="text-sm font-bold text-gray-600">👥 สมาชิก ({lobbyParticipants.length} คน)</label>
+                  </div>
+                  
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      id="addMemberInput"
+                      placeholder="พิมพ์ชื่อเพื่อน แล้วกด Enter"
+                      className="flex-1 bg-white border-2 border-dashed border-gray-300 rounded-xl px-4 py-3 text-sm focus:border-green-400 focus:outline-none"
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && e.target.value.trim()) {
+                          handleAddOtherMember(e.target.value);
+                          e.target.value = '';
+                        }
+                      }}
+                    />
+                    <button
+                      onClick={() => {
+                        const input = document.getElementById('addMemberInput');
+                        if (input.value.trim()) {
                           handleAddOtherMember(input.value);
                           input.value = '';
-                        }}
-                        className="absolute right-2 top-2 bottom-2 bg-gray-100 hover:bg-green-100 text-gray-400 hover:text-green-600 px-3 rounded-lg transition-colors font-bold"
+                        }
+                      }}
+                      className="bg-green-100 hover:bg-green-200 text-green-600 font-bold px-4 rounded-xl transition-colors"
+                    >
+                      +
+                    </button>
+                  </div>
+
+                  {/* Members List with Delete */}
+                  <div className="flex flex-wrap gap-2">
+                    {lobbyParticipants.map((p) => (
+                      <span
+                        key={p.id}
+                        className="bg-gray-100 text-gray-700 pl-3 pr-1 py-1.5 rounded-full text-sm font-medium flex items-center gap-1 group"
                       >
-                        +
-                      </button>
-                   </div>
-
-                   {/* Tags Cloud style for members */}
-                   <div className="flex flex-wrap gap-2">
-                     {lobbyParticipants.map(p => (
-                       <span key={p.id} className="bg-gray-100 text-gray-600 px-3 py-1 rounded-full text-sm font-medium flex items-center gap-1">
-                         {p.name}
-                         {p.wishlist && <span className="text-xs text-green-500">🎁</span>}
-                       </span>
-                     ))}
-                     {lobbyParticipants.length === 0 && <p className="text-gray-300 text-sm italic w-full text-center py-2">ยังไม่มีใครมาเลย...</p>}
-                   </div>
+                        {p.name}
+                        {p.wishlist && <span className="text-green-500">🎁</span>}
+                        <button
+                          onClick={() => handleDeleteMember(p.id, p.name)}
+                          className="ml-1 w-5 h-5 rounded-full bg-gray-200 hover:bg-red-100 text-gray-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all flex items-center justify-center text-xs"
+                        >
+                          ✕
+                        </button>
+                      </span>
+                    ))}
+                    {lobbyParticipants.length === 0 && (
+                      <p className="text-gray-400 text-sm italic w-full text-center py-3">ยังไม่มีสมาชิก</p>
+                    )}
+                  </div>
                 </div>
 
-                <div className="pt-4 border-t border-gray-100">
-                  <button onClick={handleJoinAsParticipant} disabled={isLoading || !myName.trim()} className="w-full bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white font-bold py-4 rounded-2xl shadow-lg transform active:scale-95 transition-all disabled:opacity-50 disabled:shadow-none">
-                    {isLoading ? '⏳ กำลังบันทึก...' : '🎅 พร้อมแล้ว! เข้าไปจับฉลาก'}
-                  </button>
-                </div>
+                {/* Join Button */}
+                <button
+                  onClick={handleJoinAsParticipant}
+                  disabled={isLoading || !myName.trim()}
+                  className="w-full bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white font-bold py-4 rounded-2xl shadow-lg transition-all active:scale-[0.98] disabled:opacity-50"
+                >
+                  {isLoading ? '⏳ กำลังเข้า...' : '🎅 พร้อมจับฉลาก!'}
+                </button>
+
+                <button
+                  onClick={() => setAppStep('landing')}
+                  className="w-full text-gray-400 hover:text-gray-600 text-sm py-2"
+                >
+                  ← กลับหน้าแรก
+                </button>
               </div>
             )}
 
-            {/* STEP: DRAW */}
+            {/* DRAW */}
             {appStep === 'draw' && (
-              <div className="space-y-6">
-                {/* Info Header */}
-                <div className="flex justify-between items-end border-b border-gray-100 pb-4">
+              <div className="space-y-5">
+                
+                {/* Header */}
+                <div className="flex justify-between items-center border-b border-gray-100 pb-4">
                   <div>
-                    <h2 className="text-xl font-bold text-gray-800">{groupName}</h2>
-                    <p className="text-sm text-gray-500">สวัสดี, <span className="text-red-500 font-bold">{myName}</span></p>
+                    <h2 className="text-lg font-bold text-gray-800">{groupName}</h2>
+                    <p className="text-sm text-gray-500">สวัสดี <span className="text-red-500 font-bold">{myName}</span>!</p>
                   </div>
-                  <div className="text-right">
-                    <div className="text-xs text-gray-400">งบประมาณ</div>
-                    <div className="font-bold text-green-600 bg-green-50 px-2 py-1 rounded-lg">{budgetMin}-{budgetMax}฿</div>
+                  <div className="bg-green-100 text-green-700 font-bold px-3 py-1 rounded-lg text-sm">
+                    💰 {budgetMin}-{budgetMax}฿
                   </div>
                 </div>
 
+                {/* Already Drawn */}
                 {hasAlreadyDrawn && myDrawResult ? (
-                  // ALREADY DRAWN CARD
-                  <div className="bg-gradient-to-br from-green-50 to-green-100 border-2 border-green-200 rounded-3xl p-6 text-center space-y-4">
-                    <p className="text-green-700 font-bold">🎉 คุณจับได้เพื่อนคนนี้แล้ว</p>
-                    <div className="text-3xl font-bold text-gray-800">{myDrawResult.name}</div>
-                    {myDrawResult.wishlist ? (
-                      <div className="bg-white p-3 rounded-xl text-sm text-gray-600 shadow-sm inline-block">
-                         🎁 "{myDrawResult.wishlist}"
+                  <div className="bg-gradient-to-br from-green-50 to-emerald-50 border-2 border-green-200 rounded-2xl p-6 text-center">
+                    <p className="text-green-600 font-bold mb-2">🎉 คุณจับได้แล้ว!</p>
+                    <p className="text-3xl font-bold text-gray-800 mb-3">{myDrawResult.name}</p>
+                    {myDrawResult.wishlist && (
+                      <div className="bg-white rounded-xl p-3 text-sm text-gray-600 inline-block">
+                        🎁 "{myDrawResult.wishlist}"
                       </div>
-                    ) : (
-                      <p className="text-gray-400 text-xs">(เพื่อนไม่ได้ระบุ Wishlist)</p>
                     )}
-                    <button onClick={() => setAppStep('result')} className="text-sm text-green-600 font-bold underline mt-2 block w-full">ดูรายละเอียดเต็มๆ</button>
+                    <button
+                      onClick={() => setAppStep('result')}
+                      className="block w-full mt-4 text-green-600 font-bold hover:underline"
+                    >
+                      ดูรายละเอียด →
+                    </button>
                   </div>
                 ) : (
-                  // ACTION AREA
+                  // Draw Button
                   <div className="py-8 text-center">
                     {participants.length < 2 ? (
-                      <div className="text-gray-400 space-y-2">
-                        <div className="text-4xl opacity-50">😴</div>
-                        <p>รอเพื่อนๆ แป๊บนึงนะ...</p>
-                        <p className="text-xs">ต้องมีอย่างน้อย 2 คนถึงจะจับได้</p>
+                      <div className="text-gray-400">
+                        <div className="text-4xl mb-2">🕐</div>
+                        <p>รอเพื่อนเพิ่ม...</p>
+                        <p className="text-xs">({participants.length}/2 คนขึ้นไป)</p>
                       </div>
                     ) : (
-                      <button 
-                        onClick={handleDraw} 
+                      <button
+                        onClick={handleDraw}
                         disabled={isDrawing}
-                        className={`w-48 h-48 rounded-full font-bold text-2xl text-white shadow-[0_10px_20px_rgba(220,38,38,0.4)] transition-all transform hover:scale-105 active:scale-95 flex flex-col items-center justify-center gap-2 ${isDrawing ? 'bg-gray-300 cursor-not-allowed' : 'bg-red-500 hover:bg-red-600'}`}
+                        className={`w-40 h-40 rounded-full font-bold text-xl text-white shadow-xl transition-all transform hover:scale-105 active:scale-95 flex flex-col items-center justify-center gap-2 mx-auto ${
+                          isDrawing ? 'bg-gray-300' : 'bg-gradient-to-br from-red-500 to-red-600 hover:from-red-600 hover:to-red-700'
+                        }`}
                       >
                         {isDrawing ? (
                           <>
-                            <span className="animate-spin text-3xl">🎲</span>
-                            <span className="text-base">{drawnResult?.name || '...'}</span>
+                            <span className="text-4xl animate-bounce">🎲</span>
+                            <span className="text-sm">{drawnResult?.name || '...'}</span>
                           </>
                         ) : (
                           <>
@@ -497,75 +786,125 @@ export default function Home() {
                   </div>
                 )}
 
-                {/* Status Section */}
-                <div className="bg-gray-50 rounded-2xl p-4">
-                  <h3 className="font-bold text-gray-600 mb-3 text-sm">สถานะเพื่อนๆ</h3>
-                  <div className="flex flex-col gap-2">
-                    {pendingDraw.length > 0 && (
-                      <div className="flex items-center gap-2 text-sm text-gray-500">
-                        <span className="w-2 h-2 bg-yellow-400 rounded-full"></span>
-                        ยังไม่จับ: <span className="font-bold">{pendingDraw.map(p => p.name).join(', ')}</span>
-                      </div>
-                    )}
-                     {completedDraw.length > 0 && (
-                      <div className="flex items-center gap-2 text-sm text-green-600">
-                        <span className="w-2 h-2 bg-green-500 rounded-full"></span>
-                        จับแล้ว: <span className="font-bold">{completedDraw.length} คน</span>
-                      </div>
-                    )}
-                  </div>
-                </div>
-                
-                {/* Edit Profile Logic (Simplified) */}
-                <div className="text-center">
-                  <button onClick={() => { setAppStep('lobby'); setSaveStatus(null); }} className="text-gray-400 text-sm underline hover:text-gray-600">แก้ไขข้อมูลส่วนตัว</button>
-                </div>
-              </div>
-            )}
-
-            {/* STEP: RESULT (FINAL REVEAL) */}
-            {appStep === 'result' && myDrawResult && (
-              <div className="text-center py-6 space-y-6">
-                
-                <div className="relative inline-block">
-                  <div className="absolute -top-6 -left-6 text-4xl animate-bounce delay-100">🎄</div>
-                  <div className="absolute -top-6 -right-6 text-4xl animate-bounce delay-700">⭐</div>
+                {/* Status */}
+                <div className="bg-gray-50 rounded-2xl p-4 space-y-3">
+                  <h3 className="font-bold text-gray-600 text-sm">📊 สถานะ</h3>
                   
-                  <div className="bg-red-600 text-white p-8 rounded-[2rem] shadow-xl rotate-1 transform">
-                     <p className="text-red-100 text-sm mb-2 font-bold uppercase tracking-wider">Mission Target</p>
-                     <h2 className="text-4xl font-['Fredoka'] font-bold mb-1">{myDrawResult.name}</h2>
-                  </div>
+                  {pendingDraw.length > 0 && (
+                    <div className="flex items-start gap-2 text-sm">
+                      <span className="w-2 h-2 bg-amber-400 rounded-full mt-1.5"></span>
+                      <div>
+                        <span className="text-gray-500">รอจับ: </span>
+                        <span className="text-gray-700 font-medium">{pendingDraw.map(p => p.name).join(', ')}</span>
+                      </div>
+                    </div>
+                  )}
+                  
+                  {completedDraw.length > 0 && (
+                    <div className="flex items-center gap-2 text-sm">
+                      <span className="w-2 h-2 bg-green-500 rounded-full"></span>
+                      <span className="text-green-600 font-medium">จับแล้ว: {completedDraw.length} คน ✓</span>
+                    </div>
+                  )}
                 </div>
 
-                <div className="space-y-4 px-4">
-                   <div className="bg-yellow-50 border-2 border-yellow-100 rounded-2xl p-4 text-left">
-                     <p className="text-yellow-700 font-bold text-xs uppercase mb-1">สิ่งที่อยากได้ (Wishlist)</p>
-                     <p className="text-gray-700 font-bold text-lg">{myDrawResult.wishlist || 'ไม่ได้ระบุไว้... เซอร์ไพรส์เลย!'}</p>
-                   </div>
-
-                   {myDrawResult.hobby && (
-                     <div className="bg-blue-50 border-2 border-blue-100 rounded-2xl p-4 text-left">
-                       <p className="text-blue-700 font-bold text-xs uppercase mb-1">งานอดิเรก</p>
-                       <p className="text-gray-700">{myDrawResult.hobby}</p>
-                     </div>
-                   )}
-                </div>
-
-                <div className="pt-4">
-                  <p className="text-gray-400 text-xs mb-4">🤫 จุ๊ๆ อย่าบอกใครนะ</p>
-                  <button onClick={() => setAppStep('draw')} className="w-full bg-gray-100 hover:bg-gray-200 text-gray-600 font-bold py-3 rounded-xl transition-colors">
-                     กลับหน้าหลัก
+                {/* Edit Profile */}
+                <div className="bg-gray-50 rounded-2xl p-4 space-y-3">
+                  <h3 className="font-bold text-gray-600 text-sm">✏️ แก้ไขข้อมูล</h3>
+                  <input
+                    type="text"
+                    value={wishlist}
+                    onChange={(e) => setWishlist(e.target.value)}
+                    placeholder="🎁 Wishlist"
+                    className="w-full bg-white border border-gray-200 rounded-xl px-3 py-2 text-gray-700 text-sm focus:border-green-400 focus:outline-none"
+                  />
+                  <input
+                    type="text"
+                    value={hobby}
+                    onChange={(e) => setHobby(e.target.value)}
+                    placeholder="🎨 งานอดิเรก"
+                    className="w-full bg-white border border-gray-200 rounded-xl px-3 py-2 text-gray-700 text-sm focus:border-green-400 focus:outline-none"
+                  />
+                  <textarea
+                    value={messageToSanta}
+                    onChange={(e) => setMessageToSanta(e.target.value)}
+                    placeholder="💌 ข้อความถึง Santa"
+                    rows={2}
+                    className="w-full bg-white border border-gray-200 rounded-xl px-3 py-2 text-gray-700 text-sm focus:border-green-400 focus:outline-none resize-none"
+                  />
+                  <button
+                    onClick={handleUpdateProfile}
+                    disabled={saveStatus === 'saving'}
+                    className={`w-full py-2.5 rounded-xl font-bold text-sm transition-all ${
+                      saveStatus === 'saved'
+                        ? 'bg-green-500 text-white'
+                        : saveStatus === 'saving'
+                        ? 'bg-gray-200 text-gray-400'
+                        : 'bg-gray-200 hover:bg-gray-300 text-gray-600'
+                    }`}
+                  >
+                    {saveStatus === 'saving' ? '⏳ กำลังบันทึก...' : saveStatus === 'saved' ? '✅ บันทึกแล้ว!' : '💾 บันทึก'}
                   </button>
                 </div>
               </div>
             )}
-          </div>
-          
-          {/* Footer */}
-          <p className="text-center text-red-800/40 text-xs mt-6 font-bold">
-            Made with ❤️ for Christmas
-          </p>
 
+            {/* RESULT */}
+            {appStep === 'result' && myDrawResult && (
+              <div className="text-center py-4 space-y-6">
+                <div className="text-4xl">🎉</div>
+                
+                <div>
+                  <p className="text-gray-500 mb-2">{myName} เป็น Secret Santa ให้...</p>
+                  <div className="bg-gradient-to-r from-red-500 to-red-600 text-white rounded-2xl p-6 inline-block">
+                    <p className="text-4xl font-bold">{myDrawResult.name}</p>
+                  </div>
+                </div>
+
+                <div className="bg-gray-50 rounded-2xl p-4 text-left space-y-3">
+                  <div className="flex items-center gap-2 text-green-600 font-bold">
+                    💰 งบ: {budgetMin}-{budgetMax} บาท
+                  </div>
+                  
+                  {myDrawResult.wishlist && (
+                    <div>
+                      <p className="text-xs text-gray-400 font-bold mb-1">🎁 WISHLIST</p>
+                      <p className="text-gray-700">{myDrawResult.wishlist}</p>
+                    </div>
+                  )}
+                  
+                  {myDrawResult.hobby && (
+                    <div>
+                      <p className="text-xs text-gray-400 font-bold mb-1">🎨 งานอดิเรก</p>
+                      <p className="text-gray-700">{myDrawResult.hobby}</p>
+                    </div>
+                  )}
+                  
+                  {myDrawResult.message_to_santa && (
+                    <div>
+                      <p className="text-xs text-gray-400 font-bold mb-1">💌 ข้อความถึง Santa</p>
+                      <p className="text-gray-700 italic">"{myDrawResult.message_to_santa}"</p>
+                    </div>
+                  )}
+                </div>
+
+                <p className="text-gray-400 text-sm">🤫 เก็บเป็นความลับนะ!</p>
+
+                <button
+                  onClick={() => setAppStep('draw')}
+                  className="w-full bg-gray-100 hover:bg-gray-200 text-gray-600 font-bold py-3 rounded-xl transition-colors"
+                >
+                  ← กลับหน้าหลัก
+                </button>
+              </div>
+            )}
+
+          </div>
+
+          {/* Footer */}
+          <p className="text-center text-red-200 text-xs mt-6">
+            Made with ❤️ for Christmas 🎄
+          </p>
         </div>
       </div>
     </>
