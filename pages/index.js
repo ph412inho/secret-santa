@@ -8,7 +8,7 @@ const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBh
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-// --- CSS STYLES & ANIMATIONS ---
+// --- CSS STYLES ---
 const styles = `
   @keyframes float-slow {
     0%, 100% { transform: translateY(0px); }
@@ -16,6 +16,9 @@ const styles = `
   }
   .animate-float-slow {
     animation: float-slow 4s ease-in-out infinite;
+  }
+  .flip-x {
+    transform: scaleX(-1);
   }
 `;
 
@@ -51,7 +54,8 @@ const LoadingScreen = ({ onComplete }) => {
       <div className="relative mb-8 w-full max-w-xs h-16">
         <div className="absolute top-0 transition-all duration-100 ease-linear"
           style={{ left: `${progress - 20}%` }}> 
-           <div className="flex items-end gap-1 text-4xl whitespace-nowrap filter drop-shadow-lg">
+           {/* กลับด้าน Emoji ให้กวางนำหน้า และหันหน้าไปทางขวา (scaleX(-1)) */}
+           <div className="flex items-end gap-1 text-4xl whitespace-nowrap filter drop-shadow-lg flip-x">
              🦌🦌🛷🎅
            </div>
         </div>
@@ -63,39 +67,37 @@ const LoadingScreen = ({ onComplete }) => {
 
 const SantaIcon = ({ name, hasDrawn, isMe }) => (
   <div className={`flex flex-col items-center gap-1 p-2 rounded-xl transition-all ${isMe ? 'bg-red-50 ring-2 ring-red-200 scale-105' : ''}`}>
-    <div className={`text-3xl relative ${hasDrawn ? '' : 'grayscale opacity-50'}`}>
-      🎅
+    <div className="relative">
+      <div className={`text-4xl transition-all ${hasDrawn ? '' : 'grayscale opacity-50'}`}>
+        🎅
+      </div>
       {hasDrawn && (
-        <div className="absolute -bottom-1 -right-1 bg-white rounded-full w-4 h-4 flex items-center justify-center shadow-sm">
-           <span className="text-[10px] text-green-500">✓</span>
+        <div className="absolute -bottom-1 -right-1 bg-white rounded-full w-5 h-5 flex items-center justify-center shadow-md border border-green-100">
+           <span className="text-xs text-green-500 font-bold">✓</span>
         </div>
       )}
     </div>
-    <span className={`text-xs font-medium truncate max-w-[64px] ${hasDrawn ? 'text-gray-700' : 'text-gray-400'}`}>
+    <span className={`text-xs font-bold truncate max-w-[70px] ${hasDrawn ? 'text-gray-800' : 'text-gray-400'}`}>
       {name}
     </span>
     {hasDrawn && (
-      <span className="text-[9px] text-green-600 bg-green-50 px-1.5 py-0.5 rounded-full font-bold">
+      <span className="text-[9px] text-green-600 bg-green-100 px-1.5 py-0.5 rounded-full font-bold shadow-sm">
         จับแล้ว!
       </span>
     )}
   </div>
 );
 
-// Recovery Modal with Dropdown List
+// Recovery Modal
 const RecoveryModal = ({ isOpen, onClose, onRecover }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [searchResults, setSearchResults] = useState([]);
   const [isSearching, setIsSearching] = useState(false);
   const [selectedGroup, setSelectedGroup] = useState(null);
 
-  // Search groups as user types
   useEffect(() => {
     const delayDebounce = setTimeout(async () => {
-        if (searchTerm.length < 2) {
-            setSearchResults([]);
-            return;
-        }
+        if (searchTerm.length < 2) { setSearchResults([]); return; }
         setIsSearching(true);
         const { data } = await supabase.from('groups').select('*').ilike('name', `%${searchTerm}%`).limit(5);
         setSearchResults(data || []);
@@ -114,25 +116,14 @@ const RecoveryModal = ({ isOpen, onClose, onRecover }) => {
         
         <div className="space-y-4">
           <div className="relative">
-             <label className="block text-xs font-bold text-gray-500 mb-1">พิมพ์ชื่อกลุ่มเพื่อค้นหา</label>
-             <input 
-                type="text" 
-                value={searchTerm} 
-                onChange={(e) => setSearchTerm(e.target.value)} 
-                className="w-full bg-gray-50 border border-gray-200 rounded-xl px-3 py-3 text-sm focus:border-red-400 focus:outline-none" 
-                placeholder="เช่น แก๊งออฟฟิศ..." 
-             />
+             <label className="block text-xs font-bold text-gray-500 mb-1">พิมพ์ชื่อกลุ่ม</label>
+             <input type="text" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full bg-gray-50 border border-gray-200 rounded-xl px-3 py-3 text-sm focus:border-red-400 focus:outline-none" placeholder="เช่น แก๊งออฟฟิศ..." />
              {isSearching && <div className="absolute right-3 top-9 text-xs text-gray-400">⏳</div>}
              
-             {/* Dropdown Results */}
              {searchResults.length > 0 && (
                 <div className="absolute z-10 w-full mt-1 bg-white border border-gray-100 rounded-xl shadow-xl max-h-40 overflow-y-auto">
                     {searchResults.map(group => (
-                        <div 
-                            key={group.id}
-                            onClick={() => { setSelectedGroup(group); setSearchResults([]); setSearchTerm(group.name); }}
-                            className="px-4 py-3 hover:bg-red-50 cursor-pointer border-b border-gray-50 last:border-0"
-                        >
+                        <div key={group.id} onClick={() => { setSelectedGroup(group); setSearchResults([]); setSearchTerm(group.name); }} className="px-4 py-3 hover:bg-red-50 cursor-pointer border-b border-gray-50 last:border-0">
                             <p className="font-bold text-gray-700 text-sm">{group.name}</p>
                             <p className="text-xs text-gray-400">Code: {group.id}</p>
                         </div>
@@ -145,15 +136,10 @@ const RecoveryModal = ({ isOpen, onClose, onRecover }) => {
             <div className="bg-green-50 border border-green-200 rounded-xl p-4 text-center animate-fade-in-up">
               <p className="text-green-700 font-bold mb-1">เลือกกลุ่มนี้?</p>
               <p className="text-xl font-bold text-gray-800">{selectedGroup.name}</p>
-              <p className="text-sm text-gray-500 mb-3">รหัส: {selectedGroup.id}</p>
-              <button onClick={() => onRecover(selectedGroup)} className="w-full bg-green-500 text-white font-bold py-2 rounded-lg text-sm shadow-md hover:bg-green-600 transition-colors">
-                 ไปที่กลุ่มเลย →
-              </button>
+              <button onClick={() => onRecover(selectedGroup)} className="w-full bg-green-500 text-white font-bold py-2 rounded-lg text-sm shadow-md hover:bg-green-600 transition-colors mt-2">ไปที่กลุ่มเลย →</button>
             </div>
           ) : (
-            searchResults.length === 0 && searchTerm.length > 2 && !isSearching && (
-                <p className="text-center text-gray-400 text-sm italic">ไม่พบกลุ่มชื่อนี้</p>
-            )
+            searchResults.length === 0 && searchTerm.length > 2 && !isSearching && <p className="text-center text-gray-400 text-sm italic">ไม่พบกลุ่มชื่อนี้</p>
           )}
         </div>
       </div>
@@ -161,20 +147,56 @@ const RecoveryModal = ({ isOpen, onClose, onRecover }) => {
   );
 };
 
+// Edit Profile Modal
+const EditProfileModal = ({ isOpen, onClose, initialData, onSave }) => {
+    const [wishlist, setWishlist] = useState(initialData.wishlist || '');
+    const [hobby, setHobby] = useState(initialData.hobby || '');
+    const [message, setMessage] = useState(initialData.message || '');
+    const [isSaving, setIsSaving] = useState(false);
+
+    if (!isOpen) return null;
+
+    return (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-fade-in">
+            <div className="bg-white rounded-3xl p-6 max-w-sm w-full shadow-2xl relative">
+                <button onClick={onClose} className="absolute top-4 right-4 text-gray-300 hover:text-gray-500">✕</button>
+                <h3 className="text-lg font-bold text-gray-800 mb-4 text-center">✏️ แก้ไขข้อมูลส่วนตัว</h3>
+                <div className="space-y-3">
+                    <div>
+                        <label className="block text-xs font-bold text-gray-600 mb-1">🎁 Wishlist</label>
+                        <input type="text" value={wishlist} onChange={e => setWishlist(e.target.value)} className="w-full bg-gray-50 border border-gray-200 rounded-xl px-3 py-2 text-sm focus:border-red-400 focus:outline-none" />
+                    </div>
+                    <div>
+                        <label className="block text-xs font-bold text-gray-600 mb-1">🎨 งานอดิเรก</label>
+                        <input type="text" value={hobby} onChange={e => setHobby(e.target.value)} className="w-full bg-gray-50 border border-gray-200 rounded-xl px-3 py-2 text-sm focus:border-red-400 focus:outline-none" />
+                    </div>
+                    <div>
+                        <label className="block text-xs font-bold text-gray-600 mb-1">💌 ฝากบอก Santa</label>
+                        <textarea value={message} onChange={e => setMessage(e.target.value)} rows={3} className="w-full bg-gray-50 border border-gray-200 rounded-xl px-3 py-2 text-sm resize-none focus:border-red-400 focus:outline-none" />
+                    </div>
+                    <button 
+                        onClick={async () => {
+                            setIsSaving(true);
+                            await onSave({ wishlist, hobby, message_to_santa: message });
+                            setIsSaving(false);
+                            onClose();
+                        }} 
+                        className="w-full bg-green-500 text-white font-bold py-3 rounded-xl shadow-lg mt-2"
+                    >
+                        {isSaving ? '⏳ กำลังบันทึก...' : '💾 บันทึก'}
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
 const BudgetStepper = ({ value, onChange, min, max }) => (
   <div className="flex flex-col items-center">
     <div className="bg-white border-2 border-gray-100 rounded-2xl px-2 py-2 flex items-center gap-3 shadow-sm">
-      <button type="button" onClick={() => onChange(Math.max(min, value - 100))} disabled={value <= min}
-        className="w-8 h-8 flex items-center justify-center bg-red-50 hover:bg-red-100 rounded-xl text-red-500 font-bold disabled:opacity-30 disabled:cursor-not-allowed transition-colors">
-        −
-      </button>
-      <div className="w-16 text-center font-bold text-gray-700 text-lg">
-        {value}
-      </div>
-      <button type="button" onClick={() => onChange(Math.min(max, value + 100))} disabled={value >= max}
-        className="w-8 h-8 flex items-center justify-center bg-green-50 hover:bg-green-100 rounded-xl text-green-500 font-bold disabled:opacity-30 disabled:cursor-not-allowed transition-colors">
-        +
-      </button>
+      <button type="button" onClick={() => onChange(Math.max(min, value - 100))} disabled={value <= min} className="w-8 h-8 flex items-center justify-center bg-red-50 hover:bg-red-100 rounded-xl text-red-500 font-bold disabled:opacity-30 disabled:cursor-not-allowed transition-colors">−</button>
+      <div className="w-16 text-center font-bold text-gray-700 text-lg">{value}</div>
+      <button type="button" onClick={() => onChange(Math.min(max, value + 100))} disabled={value >= max} className="w-8 h-8 flex items-center justify-center bg-green-50 hover:bg-green-100 rounded-xl text-green-500 font-bold disabled:opacity-30 disabled:cursor-not-allowed transition-colors">+</button>
     </div>
   </div>
 );
@@ -191,7 +213,7 @@ export default function Home() {
   const [budgetMin, setBudgetMin] = useState(300);
   const [budgetMax, setBudgetMax] = useState(500);
   const [eventDate, setEventDate] = useState('');
-  const [gameStarted, setGameStarted] = useState(false); // To disable add member
+  const [gameStarted, setGameStarted] = useState(false);
   
   const [myName, setMyName] = useState('');
   const [myId, setMyId] = useState(null);
@@ -210,10 +232,10 @@ export default function Home() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
   const [notification, setNotification] = useState(null);
-  const [saveStatus, setSaveStatus] = useState(null);
   const [showWishlistForm, setShowWishlistForm] = useState(false);
   const [wishlistSaved, setWishlistSaved] = useState(false);
   const [showRecoveryModal, setShowRecoveryModal] = useState(false);
+  const [showEditProfileModal, setShowEditProfileModal] = useState(false);
 
   // --- UTILS & EFFECTS ---
   useEffect(() => { if (notification) setTimeout(() => setNotification(null), 3000); }, [notification]);
@@ -233,7 +255,6 @@ export default function Home() {
 
   const checkGameStatus = useCallback(async () => {
      if (!groupId) return;
-     // Check if any draws exist for this group
      const { count } = await supabase.from('draws').select('*', { count: 'exact', head: true }).eq('group_id', groupId);
      setGameStarted(count > 0);
   }, [groupId]);
@@ -256,7 +277,7 @@ export default function Home() {
     
     const channel = supabase.channel('lobby-channel')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'participants', filter: `group_id=eq.${groupId}` }, fetchLobbyParticipants)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'draws', filter: `group_id=eq.${groupId}` }, checkGameStatus) // Listen for game start
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'draws', filter: `group_id=eq.${groupId}` }, checkGameStatus)
       .subscribe();
     return () => supabase.removeChannel(channel);
   }, [groupId, appStep, fetchLobbyParticipants, fetchGroupDetails, checkGameStatus]);
@@ -309,17 +330,10 @@ export default function Home() {
     if (lobbyParticipants.some(p => p.name.toLowerCase() === trimmedName.toLowerCase())) {
         setError(`"${trimmedName}" มีในกลุ่มแล้ว!`); return;
     }
-    
-    // Optimistic Update: Add to list immediately
     const tempId = Math.random().toString();
     setLobbyParticipants(prev => [...prev, { id: tempId, name: trimmedName, wishlist: null }]);
-    
     const { error } = await supabase.from('participants').insert({ group_id: groupId, name: trimmedName, has_drawn: false });
-    if(error) {
-        // Revert if failed
-        fetchLobbyParticipants();
-        setError('เพิ่มไม่ได้: ' + error.message);
-    }
+    if(error) { fetchLobbyParticipants(); setError('เพิ่มไม่ได้: ' + error.message); }
   };
 
   const handleJoinAsParticipant = async () => {
@@ -328,44 +342,39 @@ export default function Home() {
       setIsLoading(true);
       const trimmedName = myName.trim();
       
-      // 1. Check if user already exists in DB (Don't rely just on local state)
       const { data: existingUser } = await supabase.from('participants').select('*').eq('group_id', groupId).ilike('name', trimmedName).single();
       
-      let currentUserId = null;
-
       if (existingUser) {
-        // --- OLD USER LOGIN ---
-        currentUserId = existingUser.id;
         setMyId(existingUser.id);
         setWishlist(existingUser.wishlist || '');
         setHobby(existingUser.hobby || '');
         setMessageToSanta(existingUser.message_to_santa || '');
         
-        // Check Draw Result IMMEDIATELY
+        // CHECK IF ALREADY DRAWN
         const { data: drawData } = await supabase.from('draws').select('*, receiver:receiver_id(*)').eq('drawer_id', existingUser.id).single();
         if (drawData) {
             setMyDrawResult(drawData.receiver);
+            // DIRECT TO RESULT IF DRAWN
+            setAppStep('draw'); // Will show result card automatically based on myDrawResult
+        } else {
+            setAppStep('draw');
         }
       } else {
-        // --- NEW USER JOIN ---
         const { data, error } = await supabase.from('participants').insert({
           group_id: groupId, name: trimmedName, wishlist: wishlist.trim() || null, hobby: hobby.trim() || null, message_to_santa: messageToSanta.trim() || null, has_drawn: false
         }).select().single();
         if(error) throw error;
-        currentUserId = data.id;
         setMyId(data.id);
+        setAppStep('draw');
       }
-      
-      setAppStep('draw');
-
     } catch (err) { setError('เข้ากลุ่มไม่ได้: ' + err.message); } finally { setIsLoading(false); }
   };
 
-  const handleUpdateProfile = async () => {
+  const handleUpdateProfile = async (newData) => {
     if (!myId) return;
-    setSaveStatus('saving');
-    await supabase.from('participants').update({ wishlist, hobby, message_to_santa: messageToSanta }).eq('id', myId);
-    setSaveStatus('saved'); setTimeout(() => setSaveStatus(null), 1500);
+    setWishlist(newData.wishlist); setHobby(newData.hobby); setMessageToSanta(newData.message_to_santa);
+    await supabase.from('participants').update(newData).eq('id', myId);
+    setNotification('บันทึกข้อมูลแล้ว! ✅');
   };
 
   const fetchParticipantsForDraw = useCallback(async () => {
@@ -387,7 +396,7 @@ export default function Home() {
     const takenIds = draws?.map(d => d.receiver_id) || [];
     const validReceivers = participants.filter(p => p.id !== myId && !takenIds.includes(p.id));
     
-    if (validReceivers.length === 0) { setError('ของขวัญหมดแล้ว! (หรือเหลือแค่ชื่อคุณ)'); setIsDrawing(false); return; }
+    if (validReceivers.length === 0) { setError('ของขวัญหมดแล้ว!'); setIsDrawing(false); return; }
 
     let count = 0;
     const interval = setInterval(() => {
@@ -428,13 +437,21 @@ export default function Home() {
         <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800&display=swap" rel="stylesheet" />
       </Head>
 
-      <div className="min-h-screen bg-gradient-to-b from-red-600 via-red-500 to-red-700 font-['Nunito'] relative selection:bg-green-200 pb-16">
+      <div className="min-h-screen bg-gradient-to-b from-red-600 via-red-500 to-red-700 font-['Nunito'] relative selection:bg-green-200 pb-20">
         
         {/* Snow & Modal */}
         <div className="fixed inset-0 pointer-events-none">
              {[...Array(15)].map((_, i) => <div key={i} className="absolute bg-white rounded-full opacity-40 animate-pulse" style={{ width: Math.random()*6+2, height: Math.random()*6+2, left: `${Math.random()*100}%`, top: `${Math.random()*100}%`, animationDelay: `${Math.random()*5}s` }} />)}
         </div>
         <RecoveryModal isOpen={showRecoveryModal} onClose={() => setShowRecoveryModal(false)} onRecover={(g) => { setGroupId(g.id); setGroupName(g.name); setBudgetMin(g.budget_min); setBudgetMax(g.budget_max); setEventDate(g.event_date); setShowRecoveryModal(false); setAppStep('lobby'); setNotification('ยินดีต้อนรับกลับ! 🎉'); }} />
+        
+        {/* EDIT PROFILE MODAL (GLOBAL ACCESS) */}
+        <EditProfileModal 
+            isOpen={showEditProfileModal} 
+            onClose={() => setShowEditProfileModal(false)} 
+            initialData={{ wishlist, hobby, message: messageToSanta }} 
+            onSave={handleUpdateProfile} 
+        />
 
         <div className="container mx-auto px-4 py-6 max-w-md relative z-10">
           
@@ -563,158 +580,4 @@ export default function Home() {
                    ) : (
                       <div className="bg-white border-2 border-green-100 p-3 rounded-xl space-y-3 relative animate-fade-in-up">
                          <button onClick={() => setShowWishlistForm(false)} className="absolute top-2 right-2 text-gray-300 hover:text-gray-500">✕</button>
-                         <input type="text" value={wishlist} onChange={e => {setWishlist(e.target.value); setWishlistSaved(false)}} onBlur={() => wishlist && setWishlistSaved(true)} placeholder="🎁 อยากได้อะไร?" className="w-full bg-gray-50 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-green-400" />
-                         <input type="text" value={hobby} onChange={e => setHobby(e.target.value)} placeholder="🎨 งานอดิเรก" className="w-full bg-gray-50 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-green-400" />
-                         <textarea value={messageToSanta} onChange={e => setMessageToSanta(e.target.value)} placeholder="💌 ฝากบอก Santa..." rows={2} className="w-full bg-gray-50 rounded-lg px-3 py-2 text-sm resize-none focus:outline-none focus:ring-1 focus:ring-green-400" />
-                         {wishlistSaved && <p className="text-center text-xs text-green-500 font-bold">✓ บันทึกแล้ว</p>}
-                      </div>
-                   )}
-                </div>
-
-                {/* Members List */}
-                <div className="space-y-2">
-                   <p className="text-sm font-bold text-gray-500 pl-1">👥 สมาชิก ({lobbyParticipants.length} คน)</p>
-                   
-                   {/* Disable add if game started */}
-                   <div className="flex gap-2 relative">
-                      {gameStarted && <div className="absolute inset-0 bg-white/50 z-10 flex items-center justify-center text-xs font-bold text-red-500">🎮 เริ่มเกมแล้ว ห้ามเพิ่มคน</div>}
-                      <input id="addMemberInput" type="text" placeholder="พิมพ์ชื่อเพื่อน..." disabled={gameStarted} className="flex-1 bg-white border border-gray-200 rounded-xl px-4 py-3 text-sm focus:border-green-400 focus:outline-none disabled:opacity-50" 
-                        onKeyDown={(e) => { if (e.key === 'Enter' && e.target.value.trim()) { handleAddOtherMember(e.target.value); e.target.value=''; } }} />
-                      <button disabled={gameStarted} onClick={() => { const el = document.getElementById('addMemberInput'); if(el.value.trim()) { handleAddOtherMember(el.value); el.value=''; } }} className="bg-green-100 text-green-600 font-bold px-4 rounded-xl hover:bg-green-200 disabled:opacity-50 disabled:cursor-not-allowed">+</button>
-                   </div>
-                   
-                   <div className="flex flex-wrap gap-2 pt-2">
-                      {lobbyParticipants.map(p => (
-                        <span key={p.id} className="bg-gray-100 text-gray-700 pl-3 pr-1.5 py-1.5 rounded-full text-sm font-bold flex items-center gap-1">
-                           {p.name} {p.wishlist && '🎁'}
-                        </span>
-                      ))}
-                      {lobbyParticipants.length === 0 && <p className="text-gray-300 text-sm italic w-full text-center">ยังไม่มีใครมา...</p>}
-                   </div>
-                </div>
-
-                <div className="pt-4 border-t border-gray-100">
-                   <button onClick={handleJoinAsParticipant} disabled={isLoading || !myName.trim()} className="w-full bg-gradient-to-r from-red-500 to-red-600 text-white font-bold py-4 rounded-2xl shadow-lg active:scale-95 transition-transform disabled:opacity-50">
-                      {isLoading ? '⏳ ...' : '🎅 ไปต่อเลย!'}
-                   </button>
-                </div>
-              </div>
-            )}
-
-            {/* --- STEP 5: DRAW & STATUS --- */}
-            {appStep === 'draw' && (
-              <div className="space-y-6">
-                <div className="flex justify-between items-end border-b border-gray-100 pb-4">
-                   <div>
-                      <h2 className="text-xl font-bold text-gray-800">{groupName}</h2>
-                      <p className="text-sm text-gray-500">หวัดดี <span className="text-red-500 font-bold">{myName}</span>!</p>
-                   </div>
-                   <div className="text-right flex flex-col items-end gap-1">
-                      <span className="text-xs bg-gray-100 text-gray-500 px-2 py-0.5 rounded-md">งบ {budgetMin}-{budgetMax}</span>
-                      {eventDate && <span className="text-xs bg-red-50 text-red-500 px-2 py-0.5 rounded-md font-bold">📅 {formatDate(eventDate)}</span>}
-                   </div>
-                </div>
-
-                {/* Grid of Santas */}
-                <div className="bg-gray-50 rounded-2xl p-4">
-                   <h3 className="font-bold text-gray-400 text-xs mb-3 text-center uppercase tracking-wider">Status</h3>
-                   <div className="flex flex-wrap justify-center gap-x-4 gap-y-4">
-                      {participants.map(p => <SantaIcon key={p.id} name={p.name} hasDrawn={p.has_drawn} isMe={p.id === myId} />)}
-                   </div>
-                </div>
-
-                {/* Action Area */}
-                {showResultCard && drawnResult ? (
-                   <div className="bg-gradient-to-br from-red-50 to-orange-50 border-2 border-red-100 rounded-3xl p-6 text-center animate-fade-in-up shadow-sm">
-                      <p className="text-red-500 font-bold text-sm mb-2">ภารกิจของคุณคือ...</p>
-                      <p className="text-3xl font-extrabold text-gray-800 mb-4">{drawnResult.name}</p>
-                      {drawnResult.wishlist && <div className="bg-white/80 p-2 rounded-lg text-sm text-gray-600 mb-4">🎁 "{drawnResult.wishlist}"</div>}
-                      <button onClick={() => setAppStep('result')} className="bg-red-500 text-white font-bold py-2 px-6 rounded-full shadow-lg hover:bg-red-600">ดูรายละเอียดลับ 🕵️</button>
-                   </div>
-                ) : hasAlreadyDrawn && myDrawResult ? (
-                   <div className="bg-green-50 border border-green-200 rounded-2xl p-6 text-center">
-                      <p className="text-green-600 font-bold mb-1">✅ คุณจับฉลากแล้ว</p>
-                      <p className="text-2xl font-bold text-gray-800">{myDrawResult.name}</p>
-                      <button onClick={() => setAppStep('result')} className="text-green-600 text-sm font-bold underline mt-3">ดูข้อมูลเพื่อน</button>
-                   </div>
-                ) : (
-                   <div className="py-6 text-center">
-                      {participants.length < 2 ? (
-                         <p className="text-gray-400 italic">รอเพื่อนแป๊บนึงนะ... (ต้องมี 2 คนขึ้นไป)</p>
-                      ) : (
-                         <button onClick={handleDraw} disabled={isDrawing} className={`w-40 h-40 rounded-full mx-auto shadow-2xl flex flex-col items-center justify-center gap-2 transition-all transform active:scale-95 ${isDrawing ? 'bg-gray-200 cursor-not-allowed' : 'bg-gradient-to-br from-red-500 to-red-600 hover:scale-105'}`}>
-                            {isDrawing ? <span className="text-4xl animate-spin">🎲</span> : <span className="text-5xl animate-bounce">🎁</span>}
-                            <span className={`font-bold ${isDrawing ? 'text-gray-400' : 'text-white'}`}>{isDrawing ? drawnResult?.name : 'จับเลย!'}</span>
-                         </button>
-                      )}
-                   </div>
-                )}
-                
-                {!isDrawing && !hasAlreadyDrawn && (
-                  <button onClick={() => setAppStep('lobby')} className="w-full text-center text-gray-400 text-sm hover:text-gray-600">แก้ไขข้อมูลส่วนตัว</button>
-                )}
-              </div>
-            )}
-
-            {/* --- STEP 6: SECRET RESULT --- */}
-            {appStep === 'result' && myDrawResult && (
-              <div className="text-center py-6 space-y-6">
-                <div className="relative inline-block">
-                   <div className="absolute -top-4 -left-4 text-3xl animate-bounce" style={{animationDelay: '0.2s'}}>🎄</div>
-                   <div className="absolute -top-4 -right-4 text-3xl animate-bounce" style={{animationDelay: '0.7s'}}>⭐</div>
-                   <div className="bg-red-500 text-white p-8 rounded-[2rem] shadow-xl rotate-1">
-                      <p className="text-red-100 text-xs font-bold uppercase tracking-wider mb-2">Secret Mission</p>
-                      <h2 className="text-4xl font-extrabold">{myDrawResult.name}</h2>
-                   </div>
-                </div>
-
-                <div className="bg-gray-50 rounded-2xl p-5 text-left space-y-4 border border-gray-100">
-                   <div className="flex justify-between items-center text-sm font-bold border-b border-gray-200 pb-2">
-                      <span className="text-gray-500">💰 งบของขวัญ</span>
-                      <span className="text-green-600">{budgetMin}-{budgetMax}฿</span>
-                   </div>
-                   {eventDate && (
-                      <div className="flex justify-between items-center text-sm font-bold border-b border-gray-200 pb-2">
-                         <span className="text-gray-500">📅 วันนัดหมาย</span>
-                         <span className="text-red-500">{formatDate(eventDate)}</span>
-                      </div>
-                   )}
-                   <div>
-                      <p className="text-xs text-gray-400 font-bold uppercase mb-1">🎁 สิ่งที่อยากได้</p>
-                      <p className="text-gray-800 font-medium">{myDrawResult.wishlist || '-'}</p>
-                   </div>
-                   {myDrawResult.hobby && (
-                      <div>
-                         <p className="text-xs text-gray-400 font-bold uppercase mb-1">🎨 งานอดิเรก</p>
-                         <p className="text-gray-800 font-medium">{myDrawResult.hobby}</p>
-                      </div>
-                   )}
-                   {myDrawResult.message_to_santa && (
-                      <div className="bg-yellow-50 p-3 rounded-xl border border-yellow-100 italic text-gray-600 text-sm">
-                         " {myDrawResult.message_to_santa} "
-                      </div>
-                   )}
-                </div>
-
-                <div className="pt-4">
-                   <p className="text-gray-300 text-xs mb-4">🤫 จุ๊ๆ อย่าบอกใครนะ</p>
-                   <button onClick={() => setAppStep('draw')} className="w-full bg-gray-100 hover:bg-gray-200 text-gray-600 font-bold py-3 rounded-xl transition-colors">← กลับหน้าหลัก</button>
-                </div>
-              </div>
-            )}
-
-          </div>
-          
-        </div>
-
-        {/* Floating Footer */}
-        <div className="fixed bottom-4 left-0 right-0 flex justify-center z-20">
-           <div className="bg-white/90 backdrop-blur-sm px-4 py-2 rounded-full shadow-lg border border-white/50">
-             <p className="text-red-800/60 text-xs font-bold">Made with ❤️ for Christmas 🎄</p>
-           </div>
-        </div>
-
-      </div>
-    </>
-  );
-}
+                         <input type="text" value={wishlist} onChange={e => {setWishlist(e.target.value); setWishlistSaved(false)}} onBlur={() => wishlist && setWishlistSaved(true)} placeholder="🎁 อยาก
