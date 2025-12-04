@@ -1,5 +1,5 @@
 // pages/index.js
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { createClient } from '@supabase/supabase-js';
 import Head from 'next/head';
 
@@ -10,6 +10,11 @@ const SUPABASE_ANON_KEY =
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
+const MAX_PARTICIPANTS = 40;
+const PIN_LENGTH = 4;
+const MAX_PIN_ATTEMPTS = 3;
+const LOCK_DURATION_SECONDS = 30;
+
 // --- CSS ---
 const styles = `
   .flip-x { transform: scaleX(-1); }
@@ -19,7 +24,66 @@ const styles = `
     50% { transform: translateY(-15px); }
   }
   .animate-landing-float { animation: float-slow 4s ease-in-out infinite; }
+  @keyframes shake {
+    0%, 100% { transform: translateX(0); }
+    25% { transform: translateX(-5px); }
+    75% { transform: translateX(5px); }
+  }
+  .animate-shake { animation: shake 0.3s ease-in-out; }
 `;
+
+// --- UTILITY FUNCTIONS ---
+
+const generateGroupId = () => {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  return Array.from({ length: 6 }, () =>
+    chars.charAt(Math.floor(Math.random() * chars.length))
+  ).join('');
+};
+
+const parseNames = (input, existingParticipants = []) => {
+  const names = input
+    .split(/[,\n]/)
+    .map((name) => name.trim())
+    .filter((name) => name.length > 0);
+  
+  const existingNames = new Set(
+    existingParticipants.map((p) => p.name.toLowerCase())
+  );
+  
+  const uniqueNames = [];
+  const duplicates = [];
+  const alreadyInGroup = [];
+  const seen = new Set();
+  
+  for (const name of names) {
+    const lowerName = name.toLowerCase();
+    
+    // Check if already in group
+    if (existingNames.has(lowerName)) {
+      alreadyInGroup.push(name);
+    }
+    // Check if duplicate in current input
+    else if (seen.has(lowerName)) {
+      duplicates.push(name);
+    } else {
+      seen.add(lowerName);
+      uniqueNames.push(name);
+    }
+  }
+  
+  return { uniqueNames, duplicates, alreadyInGroup };
+};
+
+const formatDate = (dateStr) => {
+  if (!dateStr) return null;
+  const date = new Date(dateStr);
+  return date.toLocaleDateString('th-TH', {
+    day: 'numeric',
+    month: 'short',
+    year: '2-digit',
+  });
+};
 
 // --- COMPONENTS ---
 
@@ -78,10 +142,42 @@ const LoadingScreen = ({ onComplete }) => {
   );
 };
 
+// Notification Toast
+const Toast = ({ message, type, onClose }) => {
+  useEffect(() => {
+    const timer = setTimeout(onClose, 6000);
+    return () => clearTimeout(timer);
+  }, [onClose]);
+
+  return (
+    <div className="fixed top-6 left-0 right-0 z-50 flex justify-center px-4 animate-bounce">
+      <div
+        className={`px-4 py-3 rounded-xl shadow-xl flex items-center gap-3 max-w-sm w-full ${
+          type === 'error'
+            ? 'bg-white border-l-4 border-red-500'
+            : 'bg-white border-l-4 border-green-500'
+        }`}
+      >
+        <span className="text-xl">{type === 'error' ? '😅' : '🎁'}</span>
+        <span className="text-gray-700 font-medium text-sm flex-1">
+          {message}
+        </span>
+        <button
+          onClick={onClose}
+          className="text-gray-400 hover:text-gray-600 text-lg font-bold"
+        >
+          ×
+        </button>
+      </div>
+    </div>
+  );
+};
+
 // Santa Icon with Status
 const SantaIcon = ({
   name,
   hasDrawn,
+  hasPIN,
   isMe,
   isSelected,
   onClick,
@@ -103,6 +199,12 @@ const SantaIcon = ({
   >
     <div className="relative">
       <div className="text-4xl transition-all">🎅</div>
+      {/* Show claim status (PIN) on left, draw status on right */}
+      {hasPIN && (
+        <div className="absolute -bottom-1 -left-1 bg-white rounded-full w-5 h-5 flex items-center justify-center shadow-md border border-blue-100">
+          <span className="text-[10px]">🔐</span>
+        </div>
+      )}
       {hasDrawn && (
         <div className="absolute -bottom-1 -right-1 bg-white rounded-full w-5 h-5 flex items-center justify-center shadow-md border border-green-100">
           <span className="text-xs text-green-500 font-bold">✓</span>
@@ -129,6 +231,192 @@ const SantaIcon = ({
     )}
   </div>
 );
+
+// PIN Modal
+const PINModal = ({ isOpen, mode, participantName, onSubmit, onClose, lockUntil }) => {
+  const [pin, setPin] = useState(['', '', '', '']);
+  const [error, setError] = useState('');
+  const [isShaking, setIsShaking] = useState(false);
+  const [remainingLock, setRemainingLock] = useState(0);
+
+  useEffect(() => {
+    if (isOpen) {
+      setPin(['', '', '', '']);
+      setError('');
+    }
+  }, [isOpen]);
+
+  useEffect(() => {
+    if (!lockUntil) {
+      setRemainingLock(0);
+      return;
+    }
+    
+    const updateRemaining = () => {
+      const remaining = Math.max(0, Math.ceil((lockUntil - Date.now()) / 1000));
+      setRemainingLock(remaining);
+    };
+    
+    updateRemaining();
+    const interval = setInterval(updateRemaining, 1000);
+    return () => clearInterval(interval);
+  }, [lockUntil]);
+
+  const handleChange = (index, value) => {
+    if (!/^\d*$/.test(value)) return;
+    
+    const newPin = [...pin];
+    newPin[index] = value.slice(-1);
+    setPin(newPin);
+    setError('');
+    
+    if (value && index < 3) {
+      const nextInput = document.getElementById(`pin-${index + 1}`);
+      nextInput?.focus();
+    }
+  };
+
+  const handleKeyDown = (index, e) => {
+    if (e.key === 'Backspace' && !pin[index] && index > 0) {
+      const prevInput = document.getElementById(`pin-${index - 1}`);
+      prevInput?.focus();
+    }
+  };
+
+  const handleSubmit = () => {
+    const fullPin = pin.join('');
+    if (fullPin.length !== PIN_LENGTH) {
+      setError('กรุณาใส่ PIN 4 หลัก');
+      setIsShaking(true);
+      setTimeout(() => setIsShaking(false), 300);
+      return;
+    }
+    onSubmit(fullPin);
+  };
+
+  const triggerError = (message) => {
+    setError(message);
+    setIsShaking(true);
+    setPin(['', '', '', '']);
+    setTimeout(() => setIsShaking(false), 300);
+    document.getElementById('pin-0')?.focus();
+  };
+
+  // Expose triggerError via ref-like pattern
+  useEffect(() => {
+    if (isOpen) {
+      window.pinModalTriggerError = triggerError;
+    }
+    return () => {
+      window.pinModalTriggerError = null;
+    };
+  }, [isOpen]);
+
+  if (!isOpen) return null;
+
+  const isLocked = remainingLock > 0;
+
+  return (
+    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+      <div className={`bg-white rounded-3xl p-6 max-w-sm w-full shadow-2xl relative ${isShaking ? 'animate-shake' : ''}`}>
+        <button
+          onClick={onClose}
+          className="absolute top-4 right-4 text-gray-300 hover:text-gray-500"
+        >
+          ✕
+        </button>
+        
+        <div className="text-center mb-6">
+          <div className="text-4xl mb-2">
+            {mode === 'set' ? '🔐' : '🔑'}
+          </div>
+          <h3 className="text-lg font-bold text-gray-800">
+            {mode === 'set' ? 'ตั้ง PIN ของคุณ' : 'ใส่ PIN ของคุณ'}
+          </h3>
+          <p className="text-sm text-gray-500 mt-1">
+            สวัสดี <span className="font-bold text-red-500">{participantName}</span>
+          </p>
+          {mode === 'set' && (
+            <p className="text-xs text-gray-400 mt-2">
+              PIN นี้ใช้ยืนยันตัวตนทุกครั้งที่เข้ามา
+            </p>
+          )}
+        </div>
+
+        {isLocked ? (
+          <div className="text-center py-8">
+            <div className="text-5xl mb-4">⏳</div>
+            <p className="text-red-500 font-bold">ใส่ PIN ผิดหลายครั้ง</p>
+            <p className="text-gray-500 text-sm mt-2">
+              รอ <span className="font-bold text-red-500">{remainingLock}</span> วินาที
+            </p>
+          </div>
+        ) : (
+          <>
+            <div className="flex justify-center gap-3 mb-4">
+              {pin.map((digit, index) => (
+                <input
+                  key={index}
+                  id={`pin-${index}`}
+                  type="text"
+                  inputMode="numeric"
+                  maxLength={1}
+                  value={digit}
+                  onChange={(e) => handleChange(index, e.target.value)}
+                  onKeyDown={(e) => handleKeyDown(index, e)}
+                  className="w-14 h-14 text-center text-2xl font-bold border-2 border-gray-200 rounded-xl focus:border-red-400 focus:outline-none"
+                  autoFocus={index === 0}
+                />
+              ))}
+            </div>
+
+            {error && (
+              <p className="text-red-500 text-sm text-center mb-4">{error}</p>
+            )}
+
+            <button
+              onClick={handleSubmit}
+              className="w-full bg-gradient-to-r from-red-500 to-red-600 text-white font-bold py-3 rounded-xl shadow-lg"
+            >
+              {mode === 'set' ? 'ยืนยัน PIN' : 'เข้าสู่ระบบ'}
+            </button>
+          </>
+        )}
+      </div>
+    </div>
+  );
+};
+
+// Confirm Draw Modal
+const ConfirmDrawModal = ({ isOpen, onConfirm, onClose }) => {
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-3xl p-6 max-w-sm w-full shadow-2xl text-center">
+        <div className="text-5xl mb-4">🎁</div>
+        <h3 className="text-xl font-bold text-gray-800 mb-2">พร้อมจับฉลากแล้ว?</h3>
+        <p className="text-gray-500 text-sm mb-6">
+          เมื่อจับแล้ว <span className="text-red-500 font-bold">เปลี่ยนไม่ได้</span> นะ!
+        </p>
+        <div className="flex gap-3">
+          <button
+            onClick={onClose}
+            className="flex-1 bg-gray-100 text-gray-600 font-bold py-3 rounded-xl"
+          >
+            ยังก่อน
+          </button>
+          <button
+            onClick={onConfirm}
+            className="flex-1 bg-gradient-to-r from-green-500 to-green-600 text-white font-bold py-3 rounded-xl shadow-lg"
+          >
+            จับเลย! 🎉
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
 
 // Recovery Modal
 const RecoveryModal = ({ isOpen, onClose, onRecover }) => {
@@ -157,7 +445,7 @@ const RecoveryModal = ({ isOpen, onClose, onRecover }) => {
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-fade-in">
+    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
       <div className="bg-white rounded-3xl p-6 max-w-sm w-full shadow-2xl relative">
         <button
           onClick={onClose}
@@ -233,7 +521,7 @@ const EditProfileModal = ({ isOpen, onClose, initialData, onSave }) => {
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-fade-in">
+    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
       <div className="bg-white rounded-3xl p-6 max-w-sm w-full shadow-2xl relative">
         <button
           onClick={onClose}
@@ -295,6 +583,152 @@ const EditProfileModal = ({ isOpen, onClose, initialData, onSave }) => {
           </button>
         </div>
       </div>
+    </div>
+  );
+};
+
+// Bulk Add Component
+const BulkAddSection = ({ groupId, currentCount, participants, onSuccess, onError, gameStarted }) => {
+  const [input, setInput] = useState('');
+  const [isAdding, setIsAdding] = useState(false);
+
+  const { uniqueNames, duplicates, alreadyInGroup } = useMemo(
+    () => parseNames(input, participants),
+    [input, participants]
+  );
+  
+  const remainingSlots = MAX_PARTICIPANTS - currentCount;
+  const namesToAdd = uniqueNames.slice(0, remainingSlots);
+  const excessNames = uniqueNames.slice(remainingSlots);
+
+  const handleAdd = async () => {
+    if (namesToAdd.length === 0 || isAdding) return;
+
+    setIsAdding(true);
+    try {
+      const { error } = await supabase.from('participants').insert(
+        namesToAdd.map((name) => ({
+          group_id: groupId,
+          name,
+          has_drawn: false,
+          pin: null,
+        }))
+      );
+
+      if (error) throw error;
+
+      setInput('');
+      onSuccess(`เพิ่มสมาชิก ${namesToAdd.length} คนสำเร็จ! 🎉`);
+    } catch (err) {
+      onError('เพิ่มไม่สำเร็จ: ' + err.message);
+    } finally {
+      setIsAdding(false);
+    }
+  };
+
+  if (gameStarted) {
+    return (
+      <div className="bg-yellow-50 border border-yellow-200 rounded-2xl p-4 text-center">
+        <p className="text-yellow-700 font-bold text-sm">
+          🎮 เริ่มเกมแล้ว ไม่สามารถเพิ่มสมาชิกได้
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <label className="block text-xs font-bold text-gray-500 mb-2">
+          👥 เพิ่มสมาชิก
+        </label>
+        <textarea
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          placeholder="พิมพ์รายชื่อคั่นด้วย , เช่น: แม่, พ่อ, ป๊อป, โบว์"
+          rows={3}
+          className="w-full bg-white border-2 border-gray-200 rounded-xl px-4 py-3 text-sm focus:border-green-400 focus:outline-none resize-none"
+        />
+        <p className="text-xs text-gray-400 mt-1">
+          💡 ตัวอย่าง: แม่, พ่อ, น้องโอม, ป้าแอ๋ว
+        </p>
+      </div>
+
+      {/* Preview */}
+      {(uniqueNames.length > 0 || alreadyInGroup.length > 0) && (
+        <div className="bg-gray-50 rounded-xl p-4 border border-gray-100">
+          {namesToAdd.length > 0 && (
+            <>
+              <p className="text-xs font-bold text-gray-500 mb-2">
+                ✅ รายชื่อที่จะเพิ่ม ({namesToAdd.length} คน)
+              </p>
+              <div className="flex flex-wrap gap-2 mb-3">
+                {namesToAdd.map((name, i) => (
+                  <span
+                    key={i}
+                    className="bg-white border border-green-200 text-green-700 px-3 py-1 rounded-full text-sm font-medium"
+                  >
+                    {name}
+                  </span>
+                ))}
+              </div>
+            </>
+          )}
+          
+          {/* Names that exceed limit */}
+          {excessNames.length > 0 && (
+            <div className="flex flex-wrap gap-2 mb-3">
+              {excessNames.map((name, i) => (
+                <span
+                  key={`excess-${i}`}
+                  className="bg-red-50 border border-red-200 text-red-400 px-3 py-1 rounded-full text-sm font-medium line-through"
+                >
+                  {name}
+                </span>
+              ))}
+            </div>
+          )}
+          
+          {/* Already in group */}
+          {alreadyInGroup.length > 0 && (
+            <p className="text-xs text-orange-600 mt-2">
+              ⚠️ มีในกลุ่มแล้ว: {alreadyInGroup.join(', ')}
+            </p>
+          )}
+          
+          {/* Duplicates in input */}
+          {duplicates.length > 0 && (
+            <p className="text-xs text-orange-500 mt-2">
+              ⚠️ ตัดชื่อซ้ำออกแล้ว {duplicates.length} รายชื่อ: {duplicates.join(', ')}
+            </p>
+          )}
+          
+          {excessNames.length > 0 && (
+            <p className="text-xs text-red-500 mt-2">
+              ⚠️ เกินโควต้า {excessNames.length} คน (กลุ่มรับได้อีก {remainingSlots} คน)
+            </p>
+          )}
+        </div>
+      )}
+
+      {/* Add Button */}
+      <button
+        onClick={handleAdd}
+        disabled={namesToAdd.length === 0 || isAdding}
+        className="w-full bg-gradient-to-r from-green-500 to-green-600 text-white font-bold py-3 rounded-xl shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
+      >
+        {isAdding
+          ? '⏳ กำลังเพิ่ม...'
+          : namesToAdd.length === 0
+          ? 'พิมพ์ชื่อก่อนนะ'
+          : `เพิ่มสมาชิก ${namesToAdd.length} คน`}
+      </button>
+
+      {namesToAdd.length > 0 && (
+        <p className="text-xs text-gray-400 text-center">
+          ถ้าสะกดผิดหรือชื่อซ้ำกับคนในกลุ่ม ยังแก้ไขได้ทีหลัง
+        </p>
+      )}
     </div>
   );
 };
@@ -369,40 +803,52 @@ export default function Home() {
   const [drawnResult, setDrawnResult] = useState(null);
   const [myDrawResult, setMyDrawResult] = useState(null);
   const [isDrawing, setIsDrawing] = useState(false);
-  const [showResultCard, setShowResultCard] = useState(false);
 
   // Selection State
   const [selectedIdentity, setSelectedIdentity] = useState(null);
 
+  // PIN State
+  const [showPINModal, setShowPINModal] = useState(false);
+  const [pinMode, setPinMode] = useState('set'); // 'set' or 'verify'
+  const [pinAttempts, setPinAttempts] = useState(0);
+  const [lockUntil, setLockUntil] = useState(null);
+
   // UI States
   const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState(null);
-  const [notification, setNotification] = useState(null);
+  const [toast, setToast] = useState(null);
   const [showRecoveryModal, setShowRecoveryModal] = useState(false);
   const [showEditProfileModal, setShowEditProfileModal] = useState(false);
-  const [newMemberName, setNewMemberName] = useState('');
+  const [showConfirmDrawModal, setShowConfirmDrawModal] = useState(false);
 
   // --- UTILS & EFFECTS ---
-  useEffect(() => {
-    if (notification) {
-      const t = setTimeout(() => setNotification(null), 3000);
-      return () => clearTimeout(t);
-    }
-  }, [notification]);
 
-  useEffect(() => {
-    if (error) {
-      const t = setTimeout(() => setError(null), 4000);
-      return () => clearTimeout(t);
-    }
-  }, [error]);
+  const showNotification = useCallback((message, type = 'success') => {
+    setToast({ message, type });
+  }, []);
 
-  const generateGroupId = () => {
-    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-    return Array.from({ length: 6 }, () =>
-      chars.charAt(Math.floor(Math.random() * chars.length))
-    ).join('');
-  };
+  const showError = useCallback((message) => {
+    setToast({ message, type: 'error' });
+  }, []);
+
+  const resetAllState = useCallback(() => {
+    setGroupId('');
+    setGroupName('');
+    setBudgetMin(300);
+    setBudgetMax(700);
+    setEventDate('');
+    setGameStarted(false);
+    setMyId(null);
+    setMyName('');
+    setWishlist('');
+    setHobby('');
+    setMessageToSanta('');
+    setParticipants([]);
+    setDrawnResult(null);
+    setMyDrawResult(null);
+    setSelectedIdentity(null);
+    setPinAttempts(0);
+    setLockUntil(null);
+  }, []);
 
   const fetchParticipants = useCallback(async () => {
     if (!groupId) return;
@@ -438,7 +884,6 @@ export default function Home() {
     }
   }, [groupId]);
 
-  // helper: load who I drew from DB (single source of truth)
   const fetchMyDrawReceiver = useCallback(
     async (groupIdParam, drawerId) => {
       const { data, error } = await supabase
@@ -448,11 +893,7 @@ export default function Home() {
         .eq('drawer_id', drawerId)
         .limit(1);
 
-      if (error) {
-        console.error('fetchMyDrawReceiver error', error);
-        return null;
-      }
-      if (!data || data.length === 0) return null;
+      if (error || !data || data.length === 0) return null;
 
       const receiverId = data[0].receiver_id;
       if (!receiverId) return null;
@@ -463,10 +904,7 @@ export default function Home() {
         .eq('id', receiverId)
         .limit(1);
 
-      if (receiverError || !receiverData || receiverData.length === 0) {
-        console.error('fetch receiver participant error', receiverError);
-        return null;
-      }
+      if (receiverError || !receiverData || receiverData.length === 0) return null;
 
       return receiverData[0];
     },
@@ -509,19 +947,13 @@ export default function Home() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [
-    groupId,
-    appStep,
-    fetchParticipants,
-    fetchGroupDetails,
-    checkGameStatus,
-  ]);
+  }, [groupId, appStep, fetchParticipants, fetchGroupDetails, checkGameStatus]);
 
   // --- ACTIONS ---
 
   const handleCreateGroup = async () => {
     if (!groupName.trim()) {
-      setError('ตั้งชื่อกลุ่มก่อนนะ!');
+      showError('ตั้งชื่อกลุ่มก่อนนะ!');
       return;
     }
     try {
@@ -540,9 +972,9 @@ export default function Home() {
       if (createError) throw createError;
       setGroupId(newGroupId);
       setAppStep('lobby');
-      setNotification('สร้างกลุ่มสำเร็จ! 🎉');
+      showNotification('สร้างกลุ่มสำเร็จ! 🎉');
     } catch (err) {
-      setError('สร้างไม่สำเร็จ: ' + err.message);
+      showError('สร้างไม่สำเร็จ: ' + err.message);
     } finally {
       setIsLoading(false);
     }
@@ -550,7 +982,7 @@ export default function Home() {
 
   const handleJoinGroup = async () => {
     if (!groupId.trim() || groupId.length < 6) {
-      setError('รหัส 6 หลักนะ');
+      showError('รหัส 6 หลักนะ');
       return;
     }
     try {
@@ -570,33 +1002,94 @@ export default function Home() {
       setEventDate(g.event_date || '');
       setAppStep('lobby');
     } catch (err) {
-      setError(err.message);
+      showError(err.message);
     } finally {
       setIsLoading(false);
     }
   };
 
-  const handleAddNewMember = async () => {
-    if (!newMemberName.trim()) return;
-    const trimmedName = newMemberName.trim();
-    if (
-      participants.some(
-        (p) => p.name.toLowerCase() === trimmedName.toLowerCase()
-      )
-    ) {
-      setError(`"${trimmedName}" มีในกลุ่มแล้ว!`);
-      return;
-    }
-    const { error } = await supabase.from('participants').insert({
-      group_id: groupId,
-      name: trimmedName,
-      has_drawn: false,
-    });
-    if (error) {
-      setError('เพิ่มไม่ได้: ' + error.message);
+  const handleSelectIdentity = (participant) => {
+    setSelectedIdentity(participant);
+    
+    // Check if PIN exists
+    if (participant.pin) {
+      setPinMode('verify');
     } else {
-      setNewMemberName('');
-      fetchParticipants();
+      setPinMode('set');
+    }
+    setShowPINModal(true);
+  };
+
+  const handlePINSubmit = async (pin) => {
+    if (!selectedIdentity) return;
+
+    if (pinMode === 'set') {
+      // Save new PIN
+      const { error } = await supabase
+        .from('participants')
+        .update({ pin })
+        .eq('id', selectedIdentity.id);
+
+      if (error) {
+        showError('บันทึก PIN ไม่สำเร็จ');
+        return;
+      }
+
+      setShowPINModal(false);
+      await proceedToDrawScreen(selectedIdentity);
+      showNotification('ตั้ง PIN สำเร็จ! 🔐');
+    } else {
+      // Verify PIN
+      if (pin === selectedIdentity.pin) {
+        setShowPINModal(false);
+        setPinAttempts(0);
+        await proceedToDrawScreen(selectedIdentity);
+      } else {
+        const newAttempts = pinAttempts + 1;
+        setPinAttempts(newAttempts);
+        
+        if (newAttempts >= MAX_PIN_ATTEMPTS) {
+          setLockUntil(Date.now() + LOCK_DURATION_SECONDS * 1000);
+          setTimeout(() => {
+            setLockUntil(null);
+            setPinAttempts(0);
+          }, LOCK_DURATION_SECONDS * 1000);
+        }
+        
+        if (window.pinModalTriggerError) {
+          window.pinModalTriggerError(
+            newAttempts >= MAX_PIN_ATTEMPTS
+              ? 'ใส่ผิดหลายครั้ง กรุณารอสักครู่'
+              : `PIN ไม่ถูกต้อง (${newAttempts}/${MAX_PIN_ATTEMPTS})`
+          );
+        }
+      }
+    }
+  };
+
+  const proceedToDrawScreen = async (participant) => {
+    setIsLoading(true);
+    try {
+      setMyId(participant.id);
+      setMyName(participant.name);
+      setWishlist(participant.wishlist || '');
+      setHobby(participant.hobby || '');
+      setMessageToSanta(participant.message_to_santa || '');
+
+      await fetchParticipants();
+
+      const receiver = await fetchMyDrawReceiver(groupId, participant.id);
+      if (receiver) {
+        setMyDrawResult(receiver);
+      } else {
+        setMyDrawResult(null);
+      }
+
+      setAppStep('draw');
+    } catch (err) {
+      showError('เกิดข้อผิดพลาดในการโหลดข้อมูล');
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -609,42 +1102,7 @@ export default function Home() {
         .update({ event_date: newDate || null })
         .eq('id', groupId);
     } catch (err) {
-      setError('อัปเดตวันที่ไม่สำเร็จ');
-    }
-  };
-
-  const handleConfirmIdentity = async () => {
-    if (!selectedIdentity || !groupId) return;
-    setIsLoading(true);
-    setError(null);
-
-    try {
-      const currentUserId = selectedIdentity.id;
-
-      setMyId(currentUserId);
-      setMyName(selectedIdentity.name);
-      setWishlist(selectedIdentity.wishlist || '');
-      setHobby(selectedIdentity.hobby || '');
-      setMessageToSanta(selectedIdentity.message_to_santa || '');
-
-      await fetchParticipants();
-
-      const receiver = await fetchMyDrawReceiver(groupId, currentUserId);
-
-      if (receiver) {
-        setMyDrawResult(receiver);
-        setShowResultCard(true);
-      } else {
-        setMyDrawResult(null);
-        setShowResultCard(false);
-      }
-
-      setAppStep('draw');
-    } catch (err) {
-      console.error(err);
-      setError('เกิดข้อผิดพลาดในการโหลดข้อมูล');
-    } finally {
-      setIsLoading(false);
+      showError('อัปเดตวันที่ไม่สำเร็จ');
     }
   };
 
@@ -654,31 +1112,37 @@ export default function Home() {
     setHobby(newData.hobby);
     setMessageToSanta(newData.message_to_santa);
     await supabase.from('participants').update(newData).eq('id', myId);
-    setNotification('บันทึกข้อมูลแล้ว! ✅');
+    showNotification('บันทึกข้อมูลแล้ว! ✅');
   };
 
-  const handleDraw = async () => {
+  const handleDrawClick = () => {
+    setShowConfirmDrawModal(true);
+  };
+
+  const handleConfirmDraw = async () => {
+    setShowConfirmDrawModal(false);
+    await performDraw();
+  };
+
+  const performDraw = async () => {
     if (!myId || !groupId) return;
 
     const me = participants.find((p) => p.id === myId);
     if (isDrawing) return;
 
     if (myDrawResult || me?.has_drawn) {
-      setError('คุณจับฉลากไปแล้วนะ!');
+      showError('คุณจับฉลากไปแล้วนะ!');
       return;
     }
 
     setIsDrawing(true);
-    setShowResultCard(false);
-    setError(null);
-
+    
     try {
       const receiverFromDB = await fetchMyDrawReceiver(groupId, myId);
       if (receiverFromDB) {
         setMyDrawResult(receiverFromDB);
-        setShowResultCard(true);
         setIsDrawing(false);
-        setNotification('คุณจับฉลากไปแล้วนะ ✅');
+        showNotification('คุณจับฉลากไปแล้วนะ ✅');
         return;
       }
 
@@ -702,7 +1166,7 @@ export default function Home() {
       );
 
       if (validReceivers.length === 0) {
-        setError('ของขวัญหมดแล้ว! ทุกคนมีคนจับให้แล้ว');
+        showError('ของขวัญหมดแล้ว! ทุกคนมีคนจับให้แล้ว');
         setIsDrawing(false);
         return;
       }
@@ -736,15 +1200,12 @@ export default function Home() {
                   const already = await fetchMyDrawReceiver(groupId, myId);
                   if (already) {
                     setMyDrawResult(already);
-                    setShowResultCard(true);
                     await fetchParticipants();
                     await checkGameStatus();
                     return;
                   }
                 }
-
-                console.error('insert draws error', insertError);
-                setError('บันทึกผลไม่สำเร็จ: ' + insertError.message);
+                showError('บันทึกผลไม่สำเร็จ: ' + insertError.message);
                 return;
               }
 
@@ -754,8 +1215,7 @@ export default function Home() {
                 .eq('id', myId);
 
               if (updateError) {
-                console.error('update participant error', updateError);
-                setError('อัปเดตสถานะไม่สำเร็จ: ' + updateError.message);
+                showError('อัปเดตสถานะไม่สำเร็จ: ' + updateError.message);
               }
 
               setParticipants((prev) =>
@@ -770,7 +1230,6 @@ export default function Home() {
               );
 
               setMyDrawResult(receiverFromDBFinal || finalResult);
-              setShowResultCard(true);
               await fetchParticipants();
               await checkGameStatus();
             } finally {
@@ -780,26 +1239,15 @@ export default function Home() {
         }
       }, 80);
     } catch (err) {
-      console.error(err);
-      setError('เกิดข้อผิดพลาดในการจับฉลาก');
+      showError('เกิดข้อผิดพลาดในการจับฉลาก');
       setIsDrawing(false);
     }
   };
 
   const myParticipant = participants.find((p) => p.id === myId);
-  const hasAlreadyDrawn = !!myDrawResult;
+  const hasAlreadyDrawn = !!myDrawResult || myParticipant?.has_drawn;
   const drawnCount = participants.filter((p) => p.has_drawn).length;
   const totalCount = participants.length;
-
-  const formatDate = (dateStr) => {
-    if (!dateStr) return null;
-    const date = new Date(dateStr);
-    return date.toLocaleDateString('th-TH', {
-      day: 'numeric',
-      month: 'short',
-      year: '2-digit',
-    });
-  };
 
   if (isInitialLoading) {
     return <LoadingScreen onComplete={() => setIsInitialLoading(false)} />;
@@ -821,6 +1269,7 @@ export default function Home() {
       </Head>
 
       <div className="min-h-screen bg-gradient-to-b from-red-600 via-red-500 to-red-700 font-['Nunito'] relative selection:bg-green-200 pb-20">
+        {/* Snow particles */}
         <div className="fixed inset-0 pointer-events-none">
           {[...Array(15)].map((_, i) => (
             <div
@@ -837,6 +1286,7 @@ export default function Home() {
           ))}
         </div>
 
+        {/* Modals */}
         <RecoveryModal
           isOpen={showRecoveryModal}
           onClose={() => setShowRecoveryModal(false)}
@@ -848,7 +1298,7 @@ export default function Home() {
             setEventDate(g.event_date);
             setShowRecoveryModal(false);
             setAppStep('lobby');
-            setNotification('ยินดีต้อนรับกลับ! 🎉');
+            showNotification('ยินดีต้อนรับกลับ! 🎉');
           }}
         />
 
@@ -859,7 +1309,35 @@ export default function Home() {
           onSave={handleUpdateProfile}
         />
 
+        <PINModal
+          isOpen={showPINModal}
+          mode={pinMode}
+          participantName={selectedIdentity?.name || ''}
+          onSubmit={handlePINSubmit}
+          onClose={() => {
+            setShowPINModal(false);
+            setSelectedIdentity(null);
+          }}
+          lockUntil={lockUntil}
+        />
+
+        <ConfirmDrawModal
+          isOpen={showConfirmDrawModal}
+          onConfirm={handleConfirmDraw}
+          onClose={() => setShowConfirmDrawModal(false)}
+        />
+
+        {/* Toast */}
+        {toast && (
+          <Toast
+            message={toast.message}
+            type={toast.type}
+            onClose={() => setToast(null)}
+          />
+        )}
+
         <div className="container mx-auto px-4 py-6 max-w-md relative z-10">
+          {/* Header */}
           <div className="text-center mb-6">
             <div className="inline-block bg-white p-3 rounded-full shadow-lg border-4 border-green-500 mb-2">
               <span className="text-4xl">🎅</span>
@@ -869,28 +1347,13 @@ export default function Home() {
             </h1>
           </div>
 
-          {(error || notification) && (
-            <div className="fixed top-6 left-0 right-0 z-50 flex justify-center px-4 animate-bounce">
-              <div
-                className={`px-4 py-3 rounded-xl shadow-xl flex items-center gap-3 max-w-sm w-full ${
-                  error
-                    ? 'bg-white border-l-4 border-red-500'
-                    : 'bg-white border-l-4 border-green-500'
-                }`}
-              >
-                <span className="text-xl">{error ? '😅' : '🎁'}</span>
-                <span className="text-gray-700 font-medium text-sm flex-1">
-                  {error || notification}
-                </span>
-              </div>
-            </div>
-          )}
-
+          {/* Main Card */}
           <div
             className={`bg-white rounded-3xl p-6 shadow-2xl relative ${
               appStep === 'landing' ? 'animate-landing-float' : 'no-float'
             }`}
           >
+            {/* Landing */}
             {appStep === 'landing' && (
               <div className="space-y-4 py-4 text-center">
                 <h2 className="text-xl font-bold text-gray-800">
@@ -900,13 +1363,19 @@ export default function Home() {
                   มาจับฉลากแลกของขวัญกันเถอะ
                 </p>
                 <button
-                  onClick={() => setAppStep('create')}
+                  onClick={() => {
+                    resetAllState();
+                    setAppStep('create');
+                  }}
                   className="w-full bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 text-white font-bold py-4 rounded-2xl shadow-lg transition-transform active:scale-95"
                 >
                   🏠 สร้างกลุ่มใหม่
                 </button>
                 <button
-                  onClick={() => setAppStep('join')}
+                  onClick={() => {
+                    resetAllState();
+                    setAppStep('join');
+                  }}
                   className="w-full bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold py-4 rounded-2xl transition-colors"
                 >
                   🔑 มีรหัสกลุ่มแล้ว
@@ -920,6 +1389,7 @@ export default function Home() {
               </div>
             )}
 
+            {/* Create Group */}
             {appStep === 'create' && (
               <div className="space-y-5">
                 <h2 className="text-xl font-bold text-gray-800 text-center">
@@ -971,7 +1441,10 @@ export default function Home() {
                 </div>
                 <div className="flex gap-3 pt-2">
                   <button
-                    onClick={() => setAppStep('landing')}
+                    onClick={() => {
+                      resetAllState();
+                      setAppStep('landing');
+                    }}
                     className="flex-1 bg-gray-100 text-gray-600 font-bold py-3 rounded-xl"
                   >
                     กลับ
@@ -987,6 +1460,7 @@ export default function Home() {
               </div>
             )}
 
+            {/* Join Group */}
             {appStep === 'join' && (
               <div className="space-y-5">
                 <h2 className="text-xl font-bold text-gray-800 text-center">
@@ -1010,7 +1484,10 @@ export default function Home() {
                 </div>
                 <div className="flex gap-3">
                   <button
-                    onClick={() => setAppStep('landing')}
+                    onClick={() => {
+                      resetAllState();
+                      setAppStep('landing');
+                    }}
                     className="flex-1 bg-gray-100 text-gray-600 font-bold py-3 rounded-xl"
                   >
                     กลับ
@@ -1026,12 +1503,14 @@ export default function Home() {
               </div>
             )}
 
+            {/* Lobby */}
             {appStep === 'lobby' && (
               <div className="space-y-6">
+                {/* Group Code Card */}
                 <div
                   onClick={() => {
                     navigator.clipboard.writeText(groupId);
-                    setNotification('คัดลอกรหัสแล้ว!');
+                    showNotification('คัดลอกรหัสแล้ว!');
                   }}
                   className="bg-gradient-to-r from-red-500 to-red-600 text-white rounded-2xl p-4 text-center cursor-pointer shadow-lg active:scale-95 transition-transform"
                 >
@@ -1043,6 +1522,7 @@ export default function Home() {
                   </p>
                 </div>
 
+                {/* Group Info */}
                 <div className="text-center">
                   <h2 className="text-xl font-bold text-gray-800">
                     {groupName}
@@ -1072,8 +1552,13 @@ export default function Home() {
                       </span>
                     </div>
                   </div>
+                  {/* Member count */}
+                  <p className="text-xs text-gray-400 mt-2">
+                    สมาชิกในกลุ่ม: <span className="font-bold">{totalCount}/{MAX_PARTICIPANTS}</span> คน
+                  </p>
                 </div>
 
+                {/* Identity Selection */}
                 <div className="bg-gray-50 p-5 rounded-2xl border border-gray-100">
                   <h3 className="text-center text-gray-600 font-bold mb-4">
                     👇 คุณคือคนไหน? (จิ้มเลย)
@@ -1085,71 +1570,41 @@ export default function Home() {
                         key={p.id}
                         name={p.name}
                         hasDrawn={p.has_drawn}
+                        hasPIN={!!p.pin}
                         selectable={true}
                         isSelected={selectedIdentity?.id === p.id}
                         isMe={false}
-                        onClick={() => setSelectedIdentity(p)}
+                        onClick={() => handleSelectIdentity(p)}
                       />
                     ))}
                     {participants.length === 0 && (
                       <p className="text-gray-300 text-sm italic py-4">
-                        ยังไม่มีสมาชิก
+                        ยังไม่มีสมาชิก เพิ่มด้านล่างเลย!
                       </p>
                     )}
                   </div>
+                </div>
 
-                  <div className="mt-6 pt-2 border-t border-gray-200">
-                    <button
-                      disabled={!selectedIdentity || isLoading}
-                      onClick={handleConfirmIdentity}
-                      className={`w-full font-bold py-4 rounded-2xl shadow-lg transform active:scale-95 transition-all disabled:opacity-50 disabled:shadow-none ${
-                        selectedIdentity
-                          ? 'bg-red-500 hover:bg-red-600 text-white'
-                          : 'bg-gray-200 text-gray-400 cursor-not-allowed'
-                      }`}
-                    >
-                      {isLoading
-                        ? '⏳ กำลังเข้า...'
-                        : selectedIdentity
-                        ? `ยืนยัน: ฉันคือ "${selectedIdentity.name}" →`
-                        : 'กรุณาเลือกชื่อของคุณด้านบน'}
-                    </button>
-                  </div>
-
-                  <div className="mt-8 pt-4 border-t border-gray-200">
-                    <p className="text-xs font-bold text-gray-400 mb-2 text-center uppercase">
-                      หรือถ้ายังไม่มีชื่อ
-                    </p>
-                    <div className="flex gap-2 relative">
-                      {gameStarted && (
-                        <div className="absolute inset-0 bg-gray-50/80 z-10 flex items-center justify-center text-xs font-bold text-red-500">
-                          🎮 เริ่มเกมแล้ว ห้ามเพิ่มคน
-                        </div>
-                      )}
-                      <input
-                        type="text"
-                        value={newMemberName}
-                        onChange={(e) => setNewMemberName(e.target.value)}
-                        placeholder="พิมพ์ชื่อเล่น..."
-                        disabled={gameStarted}
-                        className="flex-1 bg-white border border-gray-200 rounded-xl px-4 py-3 text-sm focus:border-green-400 focus:outline-none disabled:opacity-50"
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') handleAddNewMember();
-                        }}
-                      />
-                      <button
-                        disabled={gameStarted || !newMemberName.trim()}
-                        onClick={handleAddNewMember}
-                        className="bg-green-500 text-white font-bold px-4 rounded-xl hover:bg-green-600 shadow-md disabled:opacity-50 disabled:cursor-not-allowed"
-                      >
-                        + เพิ่ม
-                      </button>
-                    </div>
-                  </div>
+                {/* Bulk Add Section */}
+                <div className="border-t border-gray-100 pt-6">
+                  <BulkAddSection
+                    groupId={groupId}
+                    currentCount={totalCount}
+                    participants={participants}
+                    onSuccess={(msg) => {
+                      showNotification(msg);
+                      fetchParticipants();
+                    }}
+                    onError={showError}
+                    gameStarted={gameStarted}
+                  />
                 </div>
 
                 <button
-                  onClick={() => setAppStep('landing')}
+                  onClick={() => {
+                    resetAllState();
+                    setAppStep('landing');
+                  }}
                   className="w-full text-center text-gray-400 text-sm hover:text-gray-600 py-2"
                 >
                   ← ออกจากกลุ่ม
@@ -1157,9 +1612,11 @@ export default function Home() {
               </div>
             )}
 
+            {/* Draw Screen */}
             {appStep === 'draw' && (
               <div className="space-y-6">
-                <div className="flex justify-between items-end border-b border-gray-100 pb-4">
+                {/* Header with group code */}
+                <div className="flex justify-between items-start border-b border-gray-100 pb-4">
                   <div>
                     <h2 className="text-xl font-bold text-gray-800">
                       {groupName}
@@ -1170,6 +1627,15 @@ export default function Home() {
                     </p>
                   </div>
                   <div className="text-right flex flex-col items-end gap-1">
+                    <span
+                      onClick={() => {
+                        navigator.clipboard.writeText(groupId);
+                        showNotification('คัดลอกรหัสแล้ว!');
+                      }}
+                      className="text-xs bg-gray-100 text-gray-500 px-2 py-0.5 rounded-md cursor-pointer hover:bg-gray-200"
+                    >
+                      🔗 {groupId}
+                    </span>
                     <span className="text-xs bg-gray-100 text-gray-500 px-2 py-0.5 rounded-md">
                       งบ {budgetMin}-{budgetMax}
                     </span>
@@ -1182,7 +1648,7 @@ export default function Home() {
                 </div>
 
                 {hasAlreadyDrawn ? (
-                  <div className="bg-gradient-to-br from-green-50 to-emerald-50 border-2 border-green-200 rounded-3xl p-6 text-center animate-fade-in-up shadow-sm mb-6">
+                  <div className="bg-gradient-to-br from-green-50 to-emerald-50 border-2 border-green-200 rounded-3xl p-6 text-center shadow-sm mb-6">
                     <p className="text-green-600 font-bold mb-1">
                       ✅ คุณจับฉลากแล้ว
                     </p>
@@ -1201,7 +1667,7 @@ export default function Home() {
                       </>
                     ) : (
                       <button
-                        onClick={handleConfirmIdentity}
+                        onClick={() => proceedToDrawScreen(selectedIdentity)}
                         className="text-red-500 underline text-sm"
                       >
                         โหลดข้อมูลไม่สำเร็จ ลองกดตรงนี้
@@ -1224,7 +1690,7 @@ export default function Home() {
                     ) : (
                       <>
                         <button
-                          onClick={handleDraw}
+                          onClick={handleDrawClick}
                           disabled={isDrawing}
                           className={`w-40 h-40 rounded-full mx-auto shadow-2xl flex flex-col items-center justify-center gap-2 transition-all transform active:scale-95 ${
                             isDrawing
@@ -1256,6 +1722,7 @@ export default function Home() {
                   </div>
                 )}
 
+                {/* Member Status */}
                 <div className="bg-gray-50 rounded-2xl p-4 border border-gray-100">
                   <div className="flex justify-between items-center mb-3">
                     <h3 className="font-bold text-gray-500 text-xs uppercase tracking-wider">
@@ -1271,23 +1738,44 @@ export default function Home() {
                         key={p.id}
                         name={p.name}
                         hasDrawn={p.has_drawn}
+                        hasPIN={!!p.pin}
                         isMe={p.id === myId}
                       />
                     ))}
                   </div>
                 </div>
 
-                <button
-                  onClick={() => setAppStep('lobby')}
-                  className="w-full text-center text-gray-300 text-xs mt-6 hover:text-gray-500"
-                >
-                  ← เปลี่ยนชื่อ / กลับหน้าเลือก
-                </button>
+                {/* Back button - only show if NOT drawn yet */}
+                {!hasAlreadyDrawn && (
+                  <button
+                    onClick={() => {
+                      setMyId(null);
+                      setMyName('');
+                      setSelectedIdentity(null);
+                      setAppStep('lobby');
+                    }}
+                    className="w-full text-center text-gray-300 text-xs mt-6 hover:text-gray-500"
+                  >
+                    ← เปลี่ยนชื่อ / กลับหน้าเลือก
+                  </button>
+                )}
               </div>
             )}
 
+            {/* Result Screen */}
             {appStep === 'result' && myDrawResult && (
               <div className="text-center py-6 space-y-6">
+                {/* Group code badge */}
+                <div
+                  onClick={() => {
+                    navigator.clipboard.writeText(groupId);
+                    showNotification('คัดลอกรหัสแล้ว!');
+                  }}
+                  className="inline-block bg-gray-100 text-gray-500 text-xs px-3 py-1 rounded-full cursor-pointer hover:bg-gray-200"
+                >
+                  🔗 {groupId}
+                </div>
+
                 <div className="relative inline-block">
                   <div
                     className="absolute -top-4 -left-4 text-3xl animate-bounce"
@@ -1373,6 +1861,7 @@ export default function Home() {
           </div>
         </div>
 
+        {/* Footer */}
         <div className="fixed bottom-4 left-0 right-0 flex justify-center z-20 pointer-events-none">
           <div className="bg-white/90 backdrop-blur-md px-6 py-2 rounded-full shadow-lg border border-white/50 pointer-events-auto">
             <p className="text-red-800/80 text-xs font-bold">
