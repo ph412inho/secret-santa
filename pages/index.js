@@ -850,6 +850,21 @@ export default function Home() {
     setLockUntil(null);
   }, []);
 
+  // Logout participant but stay in group (for shared device)
+  const logoutParticipant = useCallback(() => {
+    setMyId(null);
+    setMyName('');
+    setWishlist('');
+    setHobby('');
+    setMessageToSanta('');
+    setMyDrawResult(null);
+    setDrawnResult(null);
+    setSelectedIdentity(null);
+    setPinAttempts(0);
+    setLockUntil(null);
+    setAppStep('lobby');
+  }, []);
+
   const fetchParticipants = useCallback(async () => {
     if (!groupId) return;
     const { data, error } = await supabase
@@ -1745,20 +1760,13 @@ export default function Home() {
                   </div>
                 </div>
 
-                {/* Back button - only show if NOT drawn yet */}
-                {!hasAlreadyDrawn && (
-                  <button
-                    onClick={() => {
-                      setMyId(null);
-                      setMyName('');
-                      setSelectedIdentity(null);
-                      setAppStep('lobby');
-                    }}
-                    className="w-full text-center text-gray-300 text-xs mt-6 hover:text-gray-500"
-                  >
-                    ← เปลี่ยนชื่อ / กลับหน้าเลือก
-                  </button>
-                )}
+                {/* Switch player button - always visible */}
+                <button
+                  onClick={logoutParticipant}
+                  className="w-full text-center text-gray-400 text-xs mt-6 hover:text-gray-600"
+                >
+                  ← เปลี่ยนผู้เล่น / กลับหน้าเลือก
+                </button>
               </div>
             )}
 
@@ -1854,6 +1862,12 @@ export default function Home() {
                     className="w-full bg-gray-100 hover:bg-gray-200 text-gray-600 font-bold py-3 rounded-xl transition-colors"
                   >
                     ← กลับหน้าหลัก
+                  </button>
+                  <button
+                    onClick={logoutParticipant}
+                    className="w-full text-center text-gray-400 text-xs mt-2 hover:text-gray-600"
+                  >
+                    ← เปลี่ยนผู้เล่น (ให้คนอื่นใช้ต่อ)
                   </button>
                 </div>
               </div>
